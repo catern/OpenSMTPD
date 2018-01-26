@@ -29,8 +29,6 @@
 #include "smtpd-api.h"
 #include "ioev.h"
 
-#include "rfc2822.h"
-
 #define CHECK_IMSG_DATA_SIZE(imsg, expected_sz) do {			\
 	if ((imsg)->hdr.len - IMSG_HEADER_SIZE != (expected_sz))	\
 		fatalx("smtpd: imsg %d: data size expected %zd got %zd",\
