@@ -1011,6 +1011,7 @@ smtp_io(struct io *io, int evt, void *arg)
 		}
 
 		if (eom) {
+			smtp_message_end(s);
 			io_set_write(io);
 			return;
 		}
@@ -2171,17 +2172,14 @@ smtp_dataline(struct smtp_session *s, const char *line)
 
 	log_trace(TRACE_SMTP, "<<< [MSG] %s", line);
 
-	/* ignore data line if an error is set */
-
 	if (!strcmp(line, ".")) {
 		log_trace(TRACE_SMTP, "<<< [EOM]");
-		if (tx->error) {
-			smtp_message_end(s);
+		if (tx->error)
 			return 1;
-		}
 		line = NULL;
 	}
 	else {
+		/* ignore data line if an error is set */
 		if (tx->error)
 			return 0;
 
@@ -2287,7 +2285,6 @@ smtp_dataline(struct smtp_session *s, const char *line)
 			break;
 
 		case RFC5322_MSG_END:
-			smtp_message_end(s);
 			return 1;
 
 		default:
