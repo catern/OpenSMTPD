@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtp_session.c,v 1.315 2017/11/18 08:23:14 eric Exp $	*/
+/*	$OpenBSD: smtp_session.c,v 1.317 2018/02/16 20:57:30 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -46,8 +46,9 @@
 #include "ssl.h"
 #include "rfc5322.h"
 
+#define	SMTP_LINE_MAX			16384
 #define	DATA_HIWAT			65535
-#define	APPEND_DOMAIN_BUFFER_SIZE	4096
+#define	APPEND_DOMAIN_BUFFER_SIZE	SMTP_LINE_MAX
 
 enum smtp_state {
 	STATE_NEW = 0,
@@ -977,8 +978,8 @@ smtp_io(struct io *io, int evt, void *arg)
 	case IO_DATAIN:
 	    nextline:
 		line = io_getline(s->io, &len);
-		if ((line == NULL && io_datalen(s->io) >= LINE_MAX) ||
-		    (line && len >= LINE_MAX)) {
+		if ((line == NULL && io_datalen(s->io) >= SMTP_LINE_MAX) ||
+		    (line && len >= SMTP_LINE_MAX)) {
 			s->flags |= SF_BADINPUT;
 			smtp_reply(s, "500 %s: Line too long",
 			    esc_code(ESC_STATUS_PERMFAIL, ESC_OTHER_STATUS));
@@ -994,9 +995,9 @@ smtp_io(struct io *io, int evt, void *arg)
 		/* Message body */
 		eom = 0;
 		if (s->state == STATE_BODY) {
-			if (smtp_dataline(s, line) == 0)
+			eom = smtp_dataline(s, line);
+			if (eom == 0)
 				goto nextline;
-			eom = 1;
 		}
 
 		/* Pipelining not supported */
@@ -1017,7 +1018,14 @@ smtp_io(struct io *io, int evt, void *arg)
 		}
 
 		/* Must be a command */
-		(void)strlcpy(s->cmd, line, sizeof s->cmd);
+		if (strlcpy(s->cmd, line, sizeof(s->cmd)) >= sizeof(s->cmd)) {
+			s->flags |= SF_BADINPUT;
+			smtp_reply(s, "500 %s: Command line too long",
+			    esc_code(ESC_STATUS_PERMFAIL, ESC_OTHER_STATUS));
+			smtp_enter_state(s, STATE_QUIT);
+			io_set_write(io);
+			return;
+		}
 		io_set_write(io);
 		smtp_command(s, line);
 		break;
