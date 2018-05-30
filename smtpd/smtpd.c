@@ -164,6 +164,11 @@ parent_imsg(struct mproc *p, struct imsg *imsg)
 		fatalx("process %s socket closed", p->name);
 
 	switch (imsg->hdr.type) {
+	case IMSG_CTL_RELOAD:
+		m_compose(p, IMSG_CTL_OK, imsg->hdr.peerid,
+		    0, -1, NULL, 0);
+		return;
+
 	case IMSG_LKA_OPEN_FORWARD:
 		CHECK_IMSG_DATA_SIZE(imsg, sizeof *fwreq);
 		fwreq = imsg->data;

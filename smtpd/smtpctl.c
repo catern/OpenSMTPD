@@ -621,6 +621,15 @@ do_profile(int argc, struct parameter *argv)
 }
 
 static int
+do_reload(int argc, struct parameter *argv)
+{
+	int	v;
+
+	srv_send(IMSG_CTL_RELOAD, &v, sizeof(v));
+	return srv_check_result(1);
+}
+
+static int
 do_remove(int argc, struct parameter *argv)
 {
 	size_t	total, ok;
@@ -1057,6 +1066,7 @@ main(int argc, char **argv)
 	cmd_install_priv("pause mta",		do_pause_mta);
 	cmd_install_priv("pause smtp",		do_pause_smtp);
 	cmd_install_priv("profile <str>",	do_profile);
+	cmd_install_priv("reload",		do_reload);
 	cmd_install_priv("remove <evpid>",	do_remove);
 	cmd_install_priv("remove <msgid>",	do_remove);
 	cmd_install_priv("remove all",		do_remove);

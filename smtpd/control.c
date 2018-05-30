@@ -601,6 +601,22 @@ control_dispatch_ext(struct mproc *p, struct imsg *imsg)
 		m_compose(p, IMSG_CTL_OK, 0, 0, -1, NULL, 0);
 		return;
 
+	case IMSG_CTL_RELOAD:
+		if (c->euid)
+			goto badcred;
+
+		if (env->sc_flags & SMTPD_RELOADING) {
+			m_compose(p, IMSG_CTL_FAIL, 0, 0, -1, NULL, 0);
+			return;
+		}
+
+		log_info("info: smtpd reloading");
+		env->sc_flags |= SMTPD_RELOADING;
+
+		imsg->hdr.peerid = c->id;
+		m_forward(p_parent, imsg);
+		return;
+
 	case IMSG_CTL_RESUME_EVP:
 		if (c->euid)
 			goto badcred;
