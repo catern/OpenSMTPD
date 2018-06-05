@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.545 2018/05/29 21:05:52 eric Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.549 2018/06/04 15:57:46 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -533,6 +533,7 @@ struct smtpd {
 	size_t				sc_session_max_rcpt;
 	size_t				sc_session_max_mails;
 
+	struct dict		       *sc_mda_wrappers;
 	size_t				sc_mda_max_session;
 	size_t				sc_mda_max_user_session;
 	size_t				sc_mda_task_hiwat;
@@ -1048,6 +1049,7 @@ struct dispatcher_local {
 	uint8_t	expand_only;
 	uint8_t	forward_only;
 
+	char	*mda_wrapper;
 	char	*command;
 
 	char	*table_alias;
@@ -1070,6 +1072,7 @@ struct dispatcher_remote {
 
 	char	*smarthost;
 	char	*auth;
+	int	 tls_noverify;
 
 	int	 backup;
 	char	*backupmx;
@@ -1240,9 +1243,13 @@ void mda_postprivdrop(void);
 void mda_imsg(struct mproc *, struct imsg *);
 
 
+/* mda_unpriv.c */
+void mda_unpriv(struct dispatcher *, struct deliver *, const char *, const char *);
+
+
 /* mda_variables.c */
 size_t mda_expand_format(char *, size_t, const struct deliver *,
-    const struct userinfo *);
+    const struct userinfo *, const char *);
 
 
 /* makemap.c */
@@ -1489,11 +1496,11 @@ int rmtree(char *, int);
 int mvpurge(char *, char *);
 int mktmpfile(void);
 const char *parse_smtp_response(char *, size_t, char **, int *);
-void *xasprintf(const char *, ...);
-void *xmalloc(size_t, const char *);
-void *xcalloc(size_t, size_t, const char *);
-char *xstrdup(const char *, const char *);
-void *xmemdup(const void *, size_t, const char *);
+int xasprintf(char **, const char *, ...);
+void *xmalloc(size_t);
+void *xcalloc(size_t, size_t);
+char *xstrdup(const char *);
+void *xmemdup(const void *, size_t);
 char *strip(char *);
 int io_xprint(struct io *, const char *);
 int io_xprintf(struct io *, const char *, ...);
