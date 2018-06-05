@@ -1159,6 +1159,7 @@ int	uncompress_file(FILE *, FILE *);
 #define PURGE_PKI_KEYS		0x10
 #define PURGE_DISPATCHERS	0x20
 #define PURGE_EVERYTHING	0xff
+struct smtpd *config_default(void);
 void purge_config(uint8_t);
 void config_process(enum smtp_proc_type);
 void config_peer(enum smtp_proc_type);
@@ -1423,8 +1424,8 @@ struct stat_value *stat_timespec(struct timespec *);
 
 
 /* table.c */
-struct table *table_find(const char *, const char *);
-struct table *table_create(const char *, const char *, const char *,
+struct table *table_find(struct smtpd *, const char *, const char *);
+struct table *table_create(struct smtpd *, const char *, const char *, const char *,
     const char *);
 int	table_config(struct table *);
 int	table_open(struct table *);
@@ -1436,14 +1437,14 @@ int	table_check_service(struct table *, uint32_t);
 int	table_lookup(struct table *, struct dict *, const char *, enum table_service,
     union lookup *);
 int	table_fetch(struct table *, struct dict *, enum table_service, union lookup *);
-void table_destroy(struct table *);
+void table_destroy(struct smtpd *, struct table *);
 void table_add(struct table *, const char *, const char *);
 int table_domain_match(const char *, const char *);
 int table_netaddr_match(const char *, const char *);
 int table_mailaddr_match(const char *, const char *);
-void	table_open_all(void);
-void	table_dump_all(void);
-void	table_close_all(void);
+void	table_open_all(struct smtpd *);
+void	table_dump_all(struct smtpd *);
+void	table_close_all(struct smtpd *);
 int table_parse_lookup(enum table_service, const char *, const char *,
     union lookup *);
 

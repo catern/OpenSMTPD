@@ -443,9 +443,12 @@ main(int argc, char *argv[])
 	int		 save_argc = argc;
 	char		**save_argv = argv;
 	char		*rexec = NULL;
-	struct smtpd	 conf;
+	struct smtpd	*conf;
 
-	env = &conf;
+	if ((conf = config_default()) == NULL)
+		err(1, NULL);
+
+	env = conf;
 
 	flags = 0;
 	opts = 0;
@@ -569,7 +572,7 @@ main(int argc, char *argv[])
 
 	ssl_init();
 
-	if (parse_config(&conf, conffile, opts))
+	if (parse_config(conf, conffile, opts))
 		exit(1);
 
 	if (strlcpy(env->sc_conffile, conffile, PATH_MAX)
@@ -969,7 +972,7 @@ imsg_wait(struct imsgbuf *ibuf, struct imsg *imsg, int timeout)
 
 	pfd[0].fd = ibuf->fd;
 	pfd[0].events = POLLIN;
-	
+
 	while (1) {
 		if ((n = imsg_get(ibuf, imsg)) == -1)
 			return -1;

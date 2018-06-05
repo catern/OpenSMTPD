@@ -181,7 +181,7 @@ table_static_update(struct table *table)
 	if (table->t_config[0] == '\0')
 		goto ok;
 
-	t = table_create("static", table->t_name, "update", table->t_config);
+	t = table_create(env, "static", table->t_name, "update", table->t_config);
 	if (!table_config(t))
 		goto err;
 
@@ -189,14 +189,14 @@ table_static_update(struct table *table)
 	while (dict_poproot(&table->t_dict, (void **)&p))
 		free(p);
 	dict_merge(&table->t_dict, &t->t_dict);
-	table_destroy(t);
+	table_destroy(env, t);
 
 ok:
 	log_info("info: Table \"%s\" successfully updated", table->t_name);
 	return 1;
 
 err:
-	table_destroy(t);
+	table_destroy(env, t);
 	log_info("info: Failed to update table \"%s\"", table->t_name);
 	return 0;
 }
