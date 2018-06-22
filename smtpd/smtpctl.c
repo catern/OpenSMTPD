@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpctl.c,v 1.157 2018/01/30 12:44:55 eric Exp $	*/
+/*	$OpenBSD: smtpctl.c,v 1.162 2018/05/31 21:06:12 gilles Exp $	*/
 
 /*
  * Copyright (c) 2013 Eric Faurot <eric@openbsd.org>
@@ -39,6 +39,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <time.h>
 #include <unistd.h>
 #include <vis.h>
@@ -125,7 +126,7 @@ srv_connect(void)
 		return (0);
 	}
 
-	ibuf = xcalloc(1, sizeof(struct imsgbuf), "smtpctl:srv_connect");
+	ibuf = xcalloc(1, sizeof(struct imsgbuf));
 	imsg_init(ibuf, ctl_sock);
 
 	return (1);
@@ -1016,31 +1017,6 @@ do_discover(int argc, struct parameter *argv)
 }
 
 static int
-do_uncorrupt(int argc, struct parameter *argv)
-{
-	uint32_t msgid;
-	int	 ret;
-
-	if (ibuf == NULL && !srv_connect())
-		errx(1, "smtpd doesn't seem to be running");
-
-	msgid = argv[0].u.u_msgid;
-	srv_send(IMSG_CTL_UNCORRUPT_MSGID, &msgid, sizeof msgid);
-	srv_recv(IMSG_CTL_UNCORRUPT_MSGID);
-
-	if (rlen == 0) {
-		srv_end();
-		return (0);
-	} else {
-		srv_read(&ret, sizeof ret);
-		srv_end();
-	}
-
-	printf("command %s\n", ret ? "succeeded" : "failed");
-	return (0);
-}
-
-static int
 do_spf_walk(int argc, struct parameter *argv)
 {
 	droppriv();
@@ -1106,7 +1082,6 @@ main(int argc, char **argv)
 	cmd_install_priv("show stats",		do_show_stats);
 	cmd_install_priv("show status",		do_show_status);
 	cmd_install_priv("trace <str>",		do_trace);
-	cmd_install_priv("uncorrupt <msgid>",	do_uncorrupt);
 	cmd_install_priv("unprofile <str>",	do_unprofile);
 	cmd_install_priv("untrace <str>",	do_untrace);
 	cmd_install_priv("update table <str>",	do_update_table);
@@ -1130,7 +1105,7 @@ sendmail_compat(int argc, char **argv)
 {
 	FILE	*offlinefp = NULL;
 	gid_t	 gid;
-	int	 i;
+	int	 i, r;
 
 	if (strcmp(__progname, "sendmail") == 0 ||
 	    strcmp(__progname, "send-mail") == 0) {
@@ -1158,8 +1133,18 @@ sendmail_compat(int argc, char **argv)
 		exit(enqueue(argc, argv, offlinefp));
 	} else if (strcmp(__progname, "makemap") == 0)
 		exit(makemap(P_MAKEMAP, argc, argv));
-	else if (strcmp(__progname, "newaliases") == 0)
-		exit(makemap(P_NEWALIASES, argc, argv));
+	else if (strcmp(__progname, "newaliases") == 0) {
+		r = makemap(P_NEWALIASES, argc, argv);
+		/*
+		 * if server is available, notify of table update.
+		 * only makes sense for static tables AND if server is up.
+		 */
+		if (srv_connect()) {
+			srv_send(IMSG_CTL_UPDATE_TABLE, "aliases", strlen("aliases") + 1);
+			srv_check_result(0);
+		}
+		exit(r);
+	}
 }
 
 static void
@@ -1227,7 +1212,7 @@ show_queue_envelope(struct envelope *e, int online)
 	    e->dest.user, e->dest.domain,
 
 	    (size_t) e->creation,
-	    (size_t) (e->creation + e->expire),
+	    (size_t) (e->creation + e->ttl),
 	    (size_t) e->lasttry,
 	    (size_t) e->retry,
 	    runstate,
