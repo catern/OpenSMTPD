@@ -35,166 +35,182 @@ static int buf_alloc(struct buf *, size_t);
 static int buf_grow(struct buf *, size_t);
 static int buf_cat(struct buf *, const char *);
 
-struct rfc5322_msg_ctx {
+struct rfc5322_parser {
 	const char	*line;
-
-	int		 in_msg;
-	int		 in_hdrs;
-	int		 in_hdr;
-
-	int		 next;
-
+	int		 state;		/* last parser state */
+	int		 next;		/* parser needs data */
+	int		 bufferize;	/* current header must be bufferized */
 	const char	*currhdr;
-	int		 bufferize;
-
 	struct buf	 hdr;
 	struct buf	 val;
 };
 
-struct rfc5322_msg_ctx *
-rfc5322_msg_new(void)
+struct rfc5322_parser *
+rfc5322_parser_new(void)
 {
-	struct rfc5322_msg_ctx *ctx;
+	struct rfc5322_parser *parser;
 
-	ctx = calloc(1, sizeof(*ctx));
-	if (ctx == NULL)
+	parser = calloc(1, sizeof(*parser));
+	if (parser == NULL)
 		return NULL;
 
-	rfc5322_msg_clear(ctx);
-	ctx->hdr.bufmax = 1024;
-	ctx->val.bufmax = 65536;
+	rfc5322_clear(parser);
+	parser->hdr.bufmax = 1024;
+	parser->val.bufmax = 65536;
 
-	return ctx;
+	return parser;
 }
 
 void
-rfc5322_msg_free(struct rfc5322_msg_ctx *ctx)
+rfc5322_free(struct rfc5322_parser *parser)
 {
-	free(ctx->hdr.buf);
-	free(ctx->val.buf);
-	free(ctx);
+	free(parser->hdr.buf);
+	free(parser->val.buf);
+	free(parser);
 }
 
 void
-rfc5322_msg_clear(struct rfc5322_msg_ctx *ctx)
+rfc5322_clear(struct rfc5322_parser *parser)
 {
-	ctx->line = NULL;
-	ctx->in_msg = 1;
-	ctx->in_hdrs = 1;
-	ctx->in_hdr = 0;
-	ctx->next = 0;
+	parser->line = NULL;
+	parser->state = RFC5322_NONE;
+	parser->next = 0;
+	parser->hdr.buflen = 0;
+	parser->val.buflen = 0;
 }
 
 int
-rfc5322_msg_push(struct rfc5322_msg_ctx *ctx, const char *line)
+rfc5322_push(struct rfc5322_parser *parser, const char *line)
 {
-	if (ctx->line)
+	if (parser->line) {
+		errno = EALREADY;
 		return -1;
-	ctx->line = line;
-	return 0;
-}
+	}
 
-int
-rfc5322_msg_bufferize_header(struct rfc5322_msg_ctx *ctx)
-{
-	if (ctx->bufferize)
-		return -1;
-
-	if (ctx->currhdr == NULL)
-		return -1;
-
-	if (buf_cat(&ctx->val, ctx->currhdr) == -1)
-		return -1;
-
-	ctx->bufferize = 1;
+	parser->line = line;
+	parser->next = 0;
 
 	return 0;
 }
 
 int
-rfc5322_msg_next(struct rfc5322_msg_ctx *ctx, struct rfc5322_msg_result *res)
+rfc5322_bufferize_header(struct rfc5322_parser *parser)
+{
+	if (parser->bufferize) {
+		errno = EALREADY;
+		return -1;
+	}
+
+	if (parser->currhdr == NULL) {
+		errno = EOPNOTSUPP;
+		return -1;
+	}
+
+	if (buf_cat(&parser->val, parser->currhdr) == -1)
+		return -1;
+
+	parser->bufferize = 1;
+
+	return 0;
+}
+
+static int
+_rfc5322_next(struct rfc5322_parser *parser, struct rfc5322_result *res)
 {
 	size_t len;
 	const char *pos, *line;
 
-	memset(res, 0, sizeof(*res));
+	line = parser->line;
 
-	ctx->currhdr = NULL;
+	switch(parser->state) {
 
-	if (ctx->next) {
-		ctx->next = 0;
-		return RFC5322_MSG_NONE;
-	}
+	case RFC5322_HEADER_START:
+	case RFC5322_HEADER_CONT:
+		res->hdr = parser->hdr.buf;
 
-	if (!ctx->in_msg) {
-		res->error = "end of message";
-		return -1;
-	}
-
-	line = ctx->line;
-
-	if (ctx->in_hdr) {
-		/* Check for folded header */
 		if (line && (line[0] == ' ' || line[0] == '\t')) {
-			/* header continuation */
-			ctx->line = NULL;
-			ctx->next = 1;
-			res->hdr = ctx->hdr.buf;
-			res->value = line;
-			if (ctx->bufferize) {
-				if (buf_cat(&ctx->val, "\n") == -1 ||
-				    buf_cat(&ctx->val, line) == -1) {
-					res->error = "out of memory";
+			parser->line = NULL;
+			parser->next = 1;
+			if (parser->bufferize) {
+				if (buf_cat(&parser->val, "\n") == -1 ||
+				    buf_cat(&parser->val, line) == -1)
 					return -1;
-				}
 			}
-			return RFC5322_MSG_HDR_CONT;
+			res->value = line;
+			return RFC5322_HEADER_CONT;
 		}
 
-		ctx->in_hdr = 0;
-		res->hdr = ctx->hdr.buf;
-		if (ctx->bufferize) {
-			res->value = ctx->val.buf;
-			ctx->val.buflen = 0;
-			ctx->bufferize = 0;
+		if (parser->bufferize) {
+			parser->val.buflen = 0;
+			parser->bufferize = 0;
+			res->value = parser->val.buf;
 		}
-		return RFC5322_MSG_HDR_END;
-	}
+		return RFC5322_HEADER_END;
 
-	if (ctx->in_hdrs) {
-		/* Check for new header */
+	case RFC5322_NONE:
+	case RFC5322_HEADER_END:
 		if (line && (pos = strchr(line, ':'))) {
 			len = pos - line;
-			if (buf_grow(&ctx->hdr, len + 1) == -1) {
-				res->error = "out of memory";
+			if (buf_grow(&parser->hdr, len + 1) == -1)
 				return -1;
-			}
-			(void)memcpy(ctx->hdr.buf, line, len);
-			ctx->hdr.buf[len] = '\0';
-			ctx->hdr.buflen = len + 1;
-			ctx->in_hdr = 1;
-			ctx->line = NULL;
-			ctx->next = 1;
-			ctx->currhdr = pos + 1;
-			res->hdr = ctx->hdr.buf;
+			(void)memcpy(parser->hdr.buf, line, len);
+			parser->hdr.buf[len] = '\0';
+			parser->hdr.buflen = len + 1;
+			parser->line = NULL;
+			parser->next = 1;
+			parser->currhdr = pos + 1;
+			res->hdr = parser->hdr.buf;
 			res->value = pos + 1;
-			return RFC5322_MSG_HDR;
+			return RFC5322_HEADER_START;
 		}
 
-		ctx->in_hdrs = 0;
-		return RFC5322_MSG_HDRS_END;
-	}
+		return RFC5322_END_OF_HEADERS;
 
-	if (line) {
-		ctx->line = NULL;
-		ctx->next = 1;
+	case RFC5322_END_OF_HEADERS:
+		if (line == NULL)
+			return RFC5322_END_OF_MESSAGE;
+
+		if (line[0] == '\0') {
+			parser->line = NULL;
+			parser->next = 1;
+			res->value = line;
+			return RFC5322_BODY_START;
+		}
+
+		errno = EFTYPE;
+		return -1;
+
+	case RFC5322_BODY_START:
+	case RFC5322_BODY:
+		if (line == NULL)
+			return RFC5322_END_OF_MESSAGE;
+
+		parser->line = NULL;
+		parser->next = 1;
 		res->value = line;
-		return RFC5322_MSG_BODY;
-	}
+		return RFC5322_BODY;
 
-	ctx->in_msg = 0;
-	ctx->next = 1;
-	return RFC5322_MSG_END;
+	case RFC5322_END_OF_MESSAGE:
+		errno = ENOMSG;
+		return -1;
+
+	default:
+		errno = EINVAL;
+		return -1;
+	}
+}
+
+int
+rfc5322_next(struct rfc5322_parser *parser, struct rfc5322_result *res)
+{
+	memset(res, 0, sizeof(*res));
+
+	if (parser->next)
+		return RFC5322_NONE;
+
+	parser->currhdr = NULL;
+
+	return (parser->state = _rfc5322_next(parser, res));
 }
 
 static int

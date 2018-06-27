@@ -16,26 +16,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-struct rfc5322_msg_result {
-	const char	*error;
+struct rfc5322_result {
 	const char	*hdr;
 	const char	*value;
 };
 
-#define	RFC5322_MSG_ERR		-1
-#define	RFC5322_MSG_NONE	0
-#define	RFC5322_MSG_HDR		1
-#define	RFC5322_MSG_HDR_CONT	2
-#define	RFC5322_MSG_HDR_END	3
-#define	RFC5322_MSG_HDRS_END	4
-#define	RFC5322_MSG_BODY	5
-#define	RFC5322_MSG_END		6
+#define	RFC5322_ERR		-1
+#define	RFC5322_NONE		0
+#define	RFC5322_HEADER_START	1
+#define	RFC5322_HEADER_CONT	2
+#define	RFC5322_HEADER_END	3
+#define	RFC5322_END_OF_HEADERS	4
+#define	RFC5322_BODY_START	5
+#define	RFC5322_BODY		6
+#define	RFC5322_END_OF_MESSAGE	7
 
-struct rfc5322_msg_ctx;
+struct rfc5322_parser;
 
-struct rfc5322_msg_ctx *rfc5322_msg_new(void);
-void rfc5322_msg_free(struct rfc5322_msg_ctx *);
-void rfc5322_msg_clear(struct rfc5322_msg_ctx *);
-int rfc5322_msg_push(struct rfc5322_msg_ctx *, const char *);
-int rfc5322_msg_next(struct rfc5322_msg_ctx *, struct rfc5322_msg_result *);
-int rfc5322_msg_bufferize_header(struct rfc5322_msg_ctx *);
+struct rfc5322_parser *rfc5322_parser_new(void);
+void rfc5322_free(struct rfc5322_parser *);
+void rfc5322_clear(struct rfc5322_parser *);
+int rfc5322_push(struct rfc5322_parser *, const char *);
+int rfc5322_next(struct rfc5322_parser *, struct rfc5322_result *);
+int rfc5322_bufferize_header(struct rfc5322_parser *);

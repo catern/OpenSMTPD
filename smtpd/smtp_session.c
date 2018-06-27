@@ -119,7 +119,7 @@ struct smtp_tx {
 	size_t			 datain;
 	size_t			 odatalen;
 	FILE			*ofile;
-	struct rfc5322_msg_ctx	*parser;
+	struct rfc5322_parser	*parser;
 	int			 rcvcount;
 	int			 has_date;
 	int			 has_message_id;
@@ -1823,7 +1823,7 @@ smtp_tx(struct smtp_session *s)
 	if (s->flags & SF_AUTHENTICATED)
 		tx->evp.flags |= EF_AUTHENTICATED;
 
-	if ((tx->parser = rfc5322_msg_new()) == NULL) {
+	if ((tx->parser = rfc5322_parser_new()) == NULL) {
 		free(tx);
 		return 0;
 	}
@@ -1836,7 +1836,7 @@ smtp_tx_free(struct smtp_tx *tx)
 {
 	struct smtp_rcpt *rcpt;
 
-	rfc5322_msg_free(tx->parser);
+	rfc5322_free(tx->parser);
 
 	while ((rcpt = TAILQ_FIRST(&tx->rcpts))) {
 		TAILQ_REMOVE(&tx->rcpts, rcpt, entry);
@@ -2024,7 +2024,7 @@ smtp_tx_rollback(struct smtp_tx *tx)
 static int
 smtp_tx_dataline(struct smtp_tx *tx, const char *line)
 {
-	struct rfc5322_msg_result res;
+	struct rfc5322_result res;
 	int r;
 
 	log_trace(TRACE_SMTP, "<<< [MSG] %s", line);
@@ -2052,24 +2052,27 @@ smtp_tx_dataline(struct smtp_tx *tx, const char *line)
 		}
 	}
 
-	if (rfc5322_msg_push(tx->parser, line) == -1) {
+	if (rfc5322_push(tx->parser, line) == -1) {
 		log_warnx("failed to push dataline");
 		tx->error = TX_ERROR_INTERNAL;
 		return 0;
 	}
 
 	for(;;) {
-		r = rfc5322_msg_next(tx->parser, &res);
+		r = rfc5322_next(tx->parser, &res);
 		switch (r) {
-		case RFC5322_MSG_ERR:
-			tx->error = TX_ERROR_MALFORMED;
+		case -1:
+			if (errno == ENOMEM)
+				tx->error = TX_ERROR_INTERNAL;
+			else
+				tx->error = TX_ERROR_MALFORMED;
 			return 0;
 
-		case RFC5322_MSG_NONE:
+		case RFC5322_NONE:
 			/* Need more data */
 			return 0;
 
-		case RFC5322_MSG_HDR:
+		case RFC5322_HEADER_START:
 			/* ignore bcc */
 			if (!strcasecmp("Bcc", res.hdr))
 				continue;
@@ -2077,7 +2080,7 @@ smtp_tx_dataline(struct smtp_tx *tx, const char *line)
 			if (!strcasecmp("To", res.hdr) ||
 			    !strcasecmp("Cc", res.hdr) ||
 			    !strcasecmp("From", res.hdr)) {
-				rfc5322_msg_bufferize_header(tx->parser);
+				rfc5322_bufferize_header(tx->parser);
 				continue;
 			}
 
@@ -2097,7 +2100,7 @@ smtp_tx_dataline(struct smtp_tx *tx, const char *line)
 			smtp_message_printf(tx, "%s:%s\n", res.hdr, res.value);
 			break;
 
-		case RFC5322_MSG_HDR_CONT:
+		case RFC5322_HEADER_CONT:
 
 			if (!strcasecmp("Bcc", res.hdr) ||
 			    !strcasecmp("To", res.hdr) ||
@@ -2108,7 +2111,7 @@ smtp_tx_dataline(struct smtp_tx *tx, const char *line)
 			smtp_message_printf(tx, "%s\n", res.value);
 			break;
 
-		case RFC5322_MSG_HDR_END:
+		case RFC5322_HEADER_END:
 			if (!strcasecmp("To", res.hdr) ||
 			    !strcasecmp("Cc", res.hdr) ||
 			    !strcasecmp("From", res.hdr))
@@ -2116,7 +2119,7 @@ smtp_tx_dataline(struct smtp_tx *tx, const char *line)
 				    res.value);
 			break;
 
-		case RFC5322_MSG_HDRS_END:
+		case RFC5322_END_OF_HEADERS:
 			if (tx->session->listener->local ||
 			    tx->session->listener->port == 587) {
 
@@ -2134,14 +2137,14 @@ smtp_tx_dataline(struct smtp_tx *tx, const char *line)
 					    tx->session->listener->hostname);
 				}
 			}
-			smtp_message_printf(tx, "\n");
 			break;
 
-		case RFC5322_MSG_BODY:
+		case RFC5322_BODY_START:
+		case RFC5322_BODY:
 			smtp_message_printf(tx, "%s\n", res.value);
 			break;
 
-		case RFC5322_MSG_END:
+		case RFC5322_END_OF_MESSAGE:
 			return 1;
 
 		default:
