@@ -109,6 +109,7 @@ rfc5322_bufferize_header(struct rfc5322_parser *parser)
 	if (buf_cat(&parser->val, parser->currhdr) == -1)
 		return -1;
 
+	parser->currhdr = NULL;
 	parser->bufferize = 1;
 
 	return 0;
@@ -207,8 +208,6 @@ rfc5322_next(struct rfc5322_parser *parser, struct rfc5322_result *res)
 
 	if (parser->next)
 		return RFC5322_NONE;
-
-	parser->currhdr = NULL;
 
 	return (parser->state = _rfc5322_next(parser, res));
 }
