@@ -1,0 +1,2 @@
+Subject: foo
+Content without body separator after headers

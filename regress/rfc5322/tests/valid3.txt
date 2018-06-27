@@ -1,0 +1,9 @@
+Foo: bar
+X-Data: some header
+  with continuation
+Subject: content and header with continuation
+  with continuation
+
+
+Bla
+Blu
