@@ -88,6 +88,11 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 
 	switch (imsg->hdr.type) {
 
+	case IMSG_RES_GETADDRINFO:
+	case IMSG_RES_GETNAMEINFO:
+		resolver_dispatch_request(p, imsg);
+		return;
+
 	case IMSG_MTA_DNS_HOST:
 	case IMSG_MTA_DNS_PTR:
 	case IMSG_SMTP_DNS_PTR:

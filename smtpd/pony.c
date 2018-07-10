@@ -56,6 +56,13 @@ pony_imsg(struct mproc *p, struct imsg *imsg)
 		pony_shutdown();
 
 	switch (imsg->hdr.type) {
+
+	case IMSG_RES_GETADDRINFO:
+	case IMSG_RES_GETADDRINFO_END:
+	case IMSG_RES_GETNAMEINFO:
+		resolver_dispatch_result(p, imsg);
+		return;
+
 	case IMSG_CONF_START:
 		return;
 	case IMSG_CONF_END:
@@ -188,6 +195,7 @@ pony(void)
 	config_peer(PROC_CA);
 
 	ca_engine_init();
+	smtpf_init();
 
 	if (pledge("stdio inet unix recvfd sendfd", NULL) == -1)
 		err(1, "pledge");

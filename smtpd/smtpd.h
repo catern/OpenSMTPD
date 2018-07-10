@@ -23,6 +23,7 @@
 #endif
 
 #include <netinet/in.h>
+#include <netdb.h>
 #include <event.h>
 
 #include "smtpd-defines.h"
@@ -198,6 +199,10 @@ enum imsg_type {
 	IMSG_CTL_DISCOVER_MSGID,
 
 	IMSG_CTL_SMTP_SESSION,
+
+	IMSG_RES_GETADDRINFO,
+	IMSG_RES_GETADDRINFO_END,
+	IMSG_RES_GETNAMEINFO,
 
 	IMSG_SETUP_KEY,
 	IMSG_SETUP_PEER,
@@ -1361,6 +1366,13 @@ void scheduler_info(struct scheduler_info *, struct envelope *);
 int pony(void);
 void pony_imsg(struct mproc *, struct imsg *);
 
+/* resolver.c */
+void resolver_getaddrinfo(const char *, const char *, const struct addrinfo *,
+    void(*)(void *, int, struct addrinfo*), void *);
+void resolver_getnameinfo(const struct sockaddr *, int,
+    void(*)(void *, int, const char *, const char *), void *);
+void resolver_dispatch_request(struct mproc *, struct imsg *);
+void resolver_dispatch_result(struct mproc *, struct imsg *);
 
 /* smtp.c */
 void smtp_postfork(void);
@@ -1371,16 +1383,20 @@ void smtp_collect(void);
 
 
 /* smtp_session.c */
+struct smtp_session;
 int smtp_session(struct listener *, int, const struct sockaddr_storage *,
     const char *, struct io *);
 void smtp_session_imsg(struct mproc *, struct imsg *);
-
+void smtp_forward(struct smtp_session *, const char *);
+void smtp_process_command(struct smtp_session *, const char *);
 
 /* smtpf_session.c */
-int smtpf_session(struct listener *, int, const struct sockaddr_storage *,
-    const char *);
-void smtpf_session_imsg(struct mproc *, struct imsg *);
-
+struct smtpf_session;
+void smtpf_init(void);
+struct smtpf_session *smtpf_create_session(struct smtp_session *, int32_t, const char *);
+void smtpf_close_session(struct smtpf_session *);
+int smtpf_send_request(struct smtpf_session *, const char *);
+int smtpf_send_response(struct smtpf_session *, const char *);
 
 /* smtpd.c */
 void imsg_dispatch(struct mproc *, struct imsg *);

@@ -142,6 +142,7 @@ struct smtp_session {
 	size_t			 mailcount;
 	struct event		 pause;
 
+	struct smtpf_session	*smtpf;
 	struct smtp_tx		*tx;
 };
 
@@ -567,6 +568,9 @@ smtp_session(struct listener *listener, int sock,
 	log_trace(TRACE_SMTP, "smtp: %p: connected to listener %p "
 	    "[hostname=%s, port=%d, tag=%s]", s, listener,
 	    listener->hostname, ntohs(listener->port), listener->tag);
+
+	if (s->listener->filter[0])
+		s->smtpf = smtpf_create_session(s, s->id, listener->filter);
 
 	/* For local enqueueing, the hostname is already set */
 	if (hostname) {
@@ -1002,7 +1006,10 @@ smtp_io(struct io *io, int evt, void *arg)
 			return;
 		}
 		io_set_write(io);
-		smtp_command(s, line);
+		if (s->smtpf)
+			smtpf_send_request(s->smtpf, line);
+		else
+			smtp_command(s, line);
 		break;
 
 	case IO_LOWAT:
@@ -1535,6 +1542,26 @@ smtp_enter_state(struct smtp_session *s, int newstate)
 	s->state = newstate;
 }
 
+void
+smtp_forward(struct smtp_session *s, const char *line)
+{
+	log_trace(TRACE_SMTP, "smtp: %p: (fwd) >>> %s", s, line);
+
+	io_xprintf(s->io, "%s\r\n", line);
+}
+
+void
+smtp_process_command(struct smtp_session *s, const char *line)
+{
+	char *buf;
+
+	log_trace(TRACE_SMTP, "smtp: %p: (fwd) <<< %s", s, line);
+
+	buf = strdup(line);
+	smtp_command(s, buf);
+	free(buf);
+}
+
 static void
 smtp_reply(struct smtp_session *s, char *fmt, ...)
 {
@@ -1552,7 +1579,10 @@ smtp_reply(struct smtp_session *s, char *fmt, ...)
 
 	log_trace(TRACE_SMTP, "smtp: %p: >>> %s", s, buf);
 
-	io_xprintf(s->io, "%s\r\n", buf);
+	if (s->smtpf)
+		smtpf_send_response(s->smtpf, buf);
+	else
+		io_xprintf(s->io, "%s\r\n", buf);
 
 	switch (buf[0]) {
 	case '5':
@@ -1606,6 +1636,9 @@ smtp_free(struct smtp_session *s, const char * reason)
 		stat_decrement("smtp.smtps", 1);
 	if (s->flags & SF_SECURE && s->listener->flags & F_STARTTLS)
 		stat_decrement("smtp.tls", 1);
+
+	if (s->smtpf)
+		smtpf_close_session(s->smtpf);
 
 	io_free(s->io);
 	free(s);

@@ -320,13 +320,7 @@ smtp_sni_callback(SSL *ssl, int *ad, void *arg)
 static void
 smtp_accepted(struct listener *listener, int sock, const struct sockaddr_storage *ss, struct io *io)
 {
-	int     ret;
-
-	if (listener->filter[0])
-		ret = smtpf_session(listener, sock, ss, NULL);
-	else
-		ret = smtp_session(listener, sock, ss, NULL, io);
-	if (ret == -1) {
+	if (smtp_session(listener, sock, ss, NULL, io) == -1) {
 		log_warn("warn: Failed to create SMTP session");
 		close(sock);
 		return;
