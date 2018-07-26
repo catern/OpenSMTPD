@@ -1,4 +1,4 @@
-/*	$OpenBSD: mta.c,v 1.219 2018/06/07 11:31:51 eric Exp $	*/
+/*	$OpenBSD: mta.c,v 1.221 2018/07/25 16:00:48 eric Exp $	*/
 
 /*
  * Copyright (c) 2008 Pierre-Yves Ritschard <pyr@openbsd.org>
@@ -310,10 +310,6 @@ mta_imsg(struct mproc *p, struct imsg *imsg)
 			preference = INT_MAX;
 		}
 		mta_on_preference(relay, preference);
-		return;
-
-	case IMSG_MTA_DNS_PTR:
-		mta_session_imsg(p, imsg);
 		return;
 
 	case IMSG_MTA_TLS_INIT:
@@ -1680,7 +1676,7 @@ static void
 mta_log(const struct mta_envelope *evp, const char *prefix, const char *source,
     const char *relay, const char *status)
 {
-	log_info("%016"PRIx64" mta event=delivery evpid=%016"PRIx64" "
+	log_info("%016"PRIx64" mta delivery evpid=%016"PRIx64" "
 	    "from=<%s> to=<%s> rcpt=<%s> source=\"%s\" "
 	    "relay=\"%s\" delay=%s result=\"%s\" stat=\"%s\"",
 	    evp->session,
