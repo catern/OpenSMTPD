@@ -124,6 +124,7 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 	char			 out[256], buf[LINE_MAX];
 	int			 n;
 	enum lka_resp_status	status;
+	enum mda_resp_status	mda_status;
 
 	switch (imsg->hdr.type) {
 	case IMSG_MDA_LOOKUP_USERINFO:
@@ -311,6 +312,7 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 	case IMSG_MDA_DONE:
 		m_msg(&m, imsg);
 		m_get_id(&m, &reqid);
+		m_get_int(&m, &mda_status);
 		m_get_string(&m, &parent_error);
 		m_end(&m);
 
@@ -322,29 +324,41 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 		out[0] = '\0';
 		if (imsg->fd != -1)
 			mda_getlastline(imsg->fd, out, sizeof(out));
+
 		/*
 		 * Choose between parent's description of error and
 		 * child's output, the latter having preference over
 		 * the former.
 		 */
 		error = NULL;
-		if (strcmp(parent_error, "exited okay") == 0) {
-			if (s->datafp || (s->io && io_queued(s->io)))
+		if (mda_status == MDA_OK) {
+			if (s->datafp || (s->io && io_queued(s->io))) {
 				error = "mda exited prematurely";
+				mda_status = MDA_TEMPFAIL;
+			}
 		} else
 			error = out[0] ? out : parent_error;
 
 		/* update queue entry */
-		if (error) {
+		switch (mda_status) {
+		case MDA_TEMPFAIL:
 			mda_queue_tempfail(e->id, error,
 			    ESC_OTHER_MAIL_SYSTEM_STATUS);
 			(void)snprintf(buf, sizeof buf,
 			    "Error (%s)", error);
 			mda_log(e, "TempFail", buf);
-		}
-		else {
+			break;
+		case MDA_PERMFAIL:
+			mda_queue_permfail(e->id, error,
+			    ESC_OTHER_MAIL_SYSTEM_STATUS);
+			(void)snprintf(buf, sizeof buf,
+			    "Error (%s)", error);
+			mda_log(e, "PermFail", buf);
+			break;
+		case MDA_OK:
 			mda_queue_ok(e->id);
 			mda_log(e, "Ok", "Delivered");
+			break;
 		}
 		mda_done(s);
 		return;

@@ -46,6 +46,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sysexits.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -336,6 +337,7 @@ parent_sig_handler(int sig, short event, void *p)
 	case SIGCHLD:
 		do {
 			int len;
+			enum mda_resp_status mda_status;
 
 			pid = waitpid(-1, &status, WNOHANG);
 			if (pid <= 0)
@@ -346,13 +348,23 @@ parent_sig_handler(int sig, short event, void *p)
 				fail = 1;
 				len = asprintf(&cause, "terminated; signal %d",
 				    WTERMSIG(status));
+				mda_status = MDA_TEMPFAIL;
 			} else if (WIFEXITED(status)) {
 				if (WEXITSTATUS(status) != 0) {
 					fail = 1;
 					len = asprintf(&cause,
 					    "exited abnormally");
-				} else
+
+					if (WEXITSTATUS(status) == EX_OSERR ||
+					    WEXITSTATUS(status) == EX_TEMPFAIL)
+						mda_status = MDA_TEMPFAIL;
+					else
+						mda_status = MDA_PERMFAIL;
+
+				} else {
 					len = asprintf(&cause, "exited okay");
+					mda_status = MDA_OK;
+				}
 			} else
 				/* WIFSTOPPED or WIFCONTINUED */
 				continue;
@@ -395,12 +407,14 @@ parent_sig_handler(int sig, short event, void *p)
 				log_debug("debug: smtpd: mda process done "
 				    "for session %016"PRIx64 ": %s",
 				    child->mda_id, cause);
+
 				m_create(p_pony, IMSG_MDA_DONE, 0, 0,
 				    child->mda_out);
 				m_add_id(p_pony, child->mda_id);
+				m_add_int(p_pony, mda_status);
 				m_add_string(p_pony, cause);
 				m_close(p_pony);
-				/* free(cause); */
+
 				break;
 
 			case CHILD_ENQUEUE_OFFLINE:
@@ -1238,6 +1252,7 @@ forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 			    dsp->u.local.user);
 			m_create(p_pony, IMSG_MDA_DONE, 0, 0, -1);
 			m_add_id(p_pony, id);
+			m_add_int(p_pony, MDA_PERMFAIL);
 			m_add_string(p_pony, ebuf);
 			m_close(p_pony);
 			return;
@@ -1266,6 +1281,7 @@ forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 		    deliver->userinfo.username);
 		m_create(p_pony, IMSG_MDA_DONE, 0, 0, -1);
 		m_add_id(p_pony, id);
+		m_add_int(p_pony, MDA_PERMFAIL);
 		m_add_string(p_pony, ebuf);
 		m_close(p_pony);
 		return;
@@ -1275,6 +1291,7 @@ forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 		(void)snprintf(ebuf, sizeof ebuf, "pipe: %s", strerror(errno));
 		m_create(p_pony, IMSG_MDA_DONE, 0, 0, -1);
 		m_add_id(p_pony, id);
+		m_add_int(p_pony, MDA_TEMPFAIL);
 		m_add_string(p_pony, ebuf);
 		m_close(p_pony);
 		return;
@@ -1287,6 +1304,7 @@ forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 		(void)snprintf(ebuf, sizeof ebuf, "mkstemp: %s", strerror(errno));
 		m_create(p_pony, IMSG_MDA_DONE, 0, 0, -1);
 		m_add_id(p_pony, id);
+		m_add_int(p_pony, MDA_TEMPFAIL);
 		m_add_string(p_pony, ebuf);
 		m_close(p_pony);
 		close(pipefd[0]);
@@ -1300,6 +1318,7 @@ forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 		(void)snprintf(ebuf, sizeof ebuf, "fork: %s", strerror(errno));
 		m_create(p_pony, IMSG_MDA_DONE, 0, 0, -1);
 		m_add_id(p_pony, id);
+		m_add_int(p_pony, MDA_TEMPFAIL);
 		m_add_string(p_pony, ebuf);
 		m_close(p_pony);
 		close(pipefd[0]);

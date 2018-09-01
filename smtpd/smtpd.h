@@ -981,6 +981,12 @@ enum ca_resp_status {
 	CA_FAIL
 };
 
+enum mda_resp_status {
+	MDA_OK,
+	MDA_TEMPFAIL,
+	MDA_PERMFAIL
+};
+
 struct ca_cert_req_msg {
 	uint64_t		reqid;
 	char			name[HOST_NAME_MAX+1];
