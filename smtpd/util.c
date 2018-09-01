@@ -465,7 +465,7 @@ mailaddr_match(const struct mailaddr *maddr1, const struct mailaddr *maddr2)
 	if (m2.user[0] == '\0' && m2.domain[0] == '\0')
 		return 1;
 
-	if (!hostname_match(m1.domain, m2.domain))
+	if (m2.domain[0] && !hostname_match(m1.domain, m2.domain))
 		return 0;
 
 	if (m2.user[0]) {
