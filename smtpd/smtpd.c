@@ -338,7 +338,8 @@ parent_sig_handler(int sig, short event, void *p)
 		do {
 			int len;
 			enum mda_resp_status mda_status;
-
+			int mda_sysexit;
+			
 			pid = waitpid(-1, &status, WNOHANG);
 			if (pid <= 0)
 				continue;
@@ -349,21 +350,22 @@ parent_sig_handler(int sig, short event, void *p)
 				len = asprintf(&cause, "terminated; signal %d",
 				    WTERMSIG(status));
 				mda_status = MDA_TEMPFAIL;
+				mda_sysexit = 0;
 			} else if (WIFEXITED(status)) {
 				if (WEXITSTATUS(status) != 0) {
 					fail = 1;
 					len = asprintf(&cause,
 					    "exited abnormally");
-
-					if (WEXITSTATUS(status) == EX_OSERR ||
-					    WEXITSTATUS(status) == EX_TEMPFAIL)
+					mda_sysexit = WEXITSTATUS(status);
+					if (mda_sysexit == EX_OSERR ||
+					    mda_sysexit == EX_TEMPFAIL)
 						mda_status = MDA_TEMPFAIL;
 					else
 						mda_status = MDA_PERMFAIL;
-
 				} else {
 					len = asprintf(&cause, "exited okay");
 					mda_status = MDA_OK;
+					mda_sysexit = 0;
 				}
 			} else
 				/* WIFSTOPPED or WIFCONTINUED */
@@ -412,6 +414,7 @@ parent_sig_handler(int sig, short event, void *p)
 				    child->mda_out);
 				m_add_id(p_pony, child->mda_id);
 				m_add_int(p_pony, mda_status);
+				m_add_int(p_pony, mda_sysexit);
 				m_add_string(p_pony, cause);
 				m_close(p_pony);
 
@@ -1253,6 +1256,7 @@ forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 			m_create(p_pony, IMSG_MDA_DONE, 0, 0, -1);
 			m_add_id(p_pony, id);
 			m_add_int(p_pony, MDA_PERMFAIL);
+			m_add_int(p_pony, EX_NOUSER);
 			m_add_string(p_pony, ebuf);
 			m_close(p_pony);
 			return;
@@ -1282,6 +1286,7 @@ forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 		m_create(p_pony, IMSG_MDA_DONE, 0, 0, -1);
 		m_add_id(p_pony, id);
 		m_add_int(p_pony, MDA_PERMFAIL);
+		m_add_int(p_pony, EX_NOPERM);
 		m_add_string(p_pony, ebuf);
 		m_close(p_pony);
 		return;
@@ -1292,6 +1297,7 @@ forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 		m_create(p_pony, IMSG_MDA_DONE, 0, 0, -1);
 		m_add_id(p_pony, id);
 		m_add_int(p_pony, MDA_TEMPFAIL);
+		m_add_int(p_pony, EX_OSERR);
 		m_add_string(p_pony, ebuf);
 		m_close(p_pony);
 		return;
@@ -1305,6 +1311,7 @@ forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 		m_create(p_pony, IMSG_MDA_DONE, 0, 0, -1);
 		m_add_id(p_pony, id);
 		m_add_int(p_pony, MDA_TEMPFAIL);
+		m_add_int(p_pony, EX_OSERR);
 		m_add_string(p_pony, ebuf);
 		m_close(p_pony);
 		close(pipefd[0]);
@@ -1319,6 +1326,7 @@ forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 		m_create(p_pony, IMSG_MDA_DONE, 0, 0, -1);
 		m_add_id(p_pony, id);
 		m_add_int(p_pony, MDA_TEMPFAIL);
+		m_add_int(p_pony, EX_OSERR);
 		m_add_string(p_pony, ebuf);
 		m_close(p_pony);
 		close(pipefd[0]);

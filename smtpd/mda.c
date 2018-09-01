@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sysexits.h>
 #include <time.h>
 #include <unistd.h>
 #include <limits.h>
@@ -102,6 +103,7 @@ static const char *mda_user_to_text(const struct mda_user *);
 static struct mda_envelope *mda_envelope(const struct envelope *);
 static void mda_envelope_free(struct mda_envelope *);
 static struct mda_session * mda_session(struct mda_user *);
+static const char *mda_sysexit_to_str(int);
 
 static struct tree	sessions;
 static struct tree	users;
@@ -118,13 +120,14 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 	struct deliver		 deliver;
 	struct msg		 m;
 	const void		*data;
-	const char		*error, *parent_error;
+	const char		*error, *parent_error, *syserror;
 	uint64_t		 reqid;
 	size_t			 sz;
 	char			 out[256], buf[LINE_MAX];
 	int			 n;
 	enum lka_resp_status	status;
 	enum mda_resp_status	mda_status;
+	int			mda_sysexit;
 
 	switch (imsg->hdr.type) {
 	case IMSG_MDA_LOOKUP_USERINFO:
@@ -312,7 +315,8 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 	case IMSG_MDA_DONE:
 		m_msg(&m, imsg);
 		m_get_id(&m, &reqid);
-		m_get_int(&m, &mda_status);
+		m_get_int(&m, (int *)&mda_status);
+		m_get_int(&m, (int *)&mda_sysexit);
 		m_get_string(&m, &parent_error);
 		m_end(&m);
 
@@ -339,6 +343,13 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 		} else
 			error = out[0] ? out : parent_error;
 
+		syserror = NULL;
+		if (mda_sysexit) {
+			syserror = mda_sysexit_to_str(mda_sysexit);
+			if (syserror)
+				error = syserror;
+		}
+		
 		/* update queue entry */
 		switch (mda_status) {
 		case MDA_TEMPFAIL:
@@ -850,3 +861,44 @@ mda_session(struct mda_user * u)
 
 	return (s);
 }
+
+static const char *
+mda_sysexit_to_str(int sysexit)
+{
+	switch (sysexit) {
+	case EX_USAGE:
+		return "command line usage error";
+	case EX_DATAERR:
+		return "data format error";
+	case EX_NOINPUT:
+		return "cannot open input";
+	case EX_NOUSER:
+		return "user unknown";
+	case EX_NOHOST:
+		return "host name unknown";
+	case EX_UNAVAILABLE:
+		return "service unavailable";
+	case EX_SOFTWARE:
+		return "internal software error";
+	case EX_OSERR:
+		return "system resource problem";
+	case EX_OSFILE:
+		return "critical OS file missing";
+	case EX_CANTCREAT:
+		return "can't create user output file";
+	case EX_IOERR:
+		return "input/output error";
+	case EX_TEMPFAIL:
+		return "temporary failure";
+	case EX_PROTOCOL:
+		return "remote error in protocol";
+	case EX_NOPERM:
+		return "permission denied";
+	case EX_CONFIG:
+		return "local configuration error";
+	default:
+		break;
+	}
+	return NULL;
+}
+
