@@ -198,6 +198,19 @@ static int  smtp_check_mail_from(struct smtp_session *);
 static int  smtp_check_rcpt_to(struct smtp_session *);
 static int  smtp_check_data(struct smtp_session *);
 
+static void smtp_proceed_rset(struct smtp_session *);
+static void smtp_proceed_helo(struct smtp_session *, int, char *);
+static void smtp_proceed_auth(struct smtp_session *, char *);
+static void smtp_proceed_starttls(struct smtp_session *);
+static void smtp_proceed_mail_from(struct smtp_session *, char *);
+static void smtp_proceed_rcpt_to(struct smtp_session *, char *);
+static void smtp_proceed_data(struct smtp_session *);
+static void smtp_proceed_noop(struct smtp_session *);
+static void smtp_proceed_help(struct smtp_session *);
+static void smtp_proceed_wiz(struct smtp_session *);
+static void smtp_proceed_quit(struct smtp_session *);
+
+
 static struct { int code; const char *cmd; } commands[] = {
 	{ CMD_HELO,		"HELO" },
 	{ CMD_EHLO,		"EHLO" },
@@ -1021,7 +1034,7 @@ smtp_io(struct io *io, int evt, void *arg)
 static void
 smtp_command(struct smtp_session *s, char *line)
 {
-	char			       *args, *eom, *method;
+	char			       *args;
 	int				cmd, i;
 
 	log_trace(TRACE_SMTP, "smtp: %p: <<< %s", s, line);
@@ -1069,33 +1082,7 @@ smtp_command(struct smtp_session *s, char *line)
 	case CMD_EHLO:
 		if (! smtp_check_helo(s, cmd, args))
 			break;
-
-		(void)strlcpy(s->helo, args, sizeof(s->helo));
-		s->flags &= SF_SECURE | SF_AUTHENTICATED | SF_VERIFIED;
-		if (cmd == CMD_EHLO) {
-			s->flags |= SF_EHLO;
-			s->flags |= SF_8BITMIME;
-		}
-
-		smtp_enter_state(s, STATE_HELO);
-		smtp_reply(s, "250%c%s Hello %s [%s], pleased to meet you",
-		    (s->flags & SF_EHLO) ? '-' : ' ',
-		    s->smtpname,
-		    s->helo,
-		    ss_to_text(&s->ss));
-
-		if (s->flags & SF_EHLO) {
-			smtp_reply(s, "250-8BITMIME");
-			smtp_reply(s, "250-ENHANCEDSTATUSCODES");
-			smtp_reply(s, "250-SIZE %zu", env->sc_maxsize);
-			if (ADVERTISE_EXT_DSN(s))
-				smtp_reply(s, "250-DSN");
-			if (ADVERTISE_TLS(s))
-				smtp_reply(s, "250-STARTTLS");
-			if (ADVERTISE_AUTH(s))
-				smtp_reply(s, "250-AUTH PLAIN LOGIN");
-			smtp_reply(s, "250 HELP");
-		}
+		smtp_proceed_helo(s, cmd, args);
 		break;
 	/*
 	 * SETUP
@@ -1103,38 +1090,19 @@ smtp_command(struct smtp_session *s, char *line)
 	case CMD_STARTTLS:
 		if (! smtp_check_starttls(s, args))
 			break;
-
-		smtp_reply(s, "220 %s: Ready to start TLS",
-		    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
-		smtp_enter_state(s, STATE_TLS);
+		smtp_proceed_starttls(s);
 		break;
 
 	case CMD_AUTH:
 		if (! smtp_check_auth(s, args))
 			break;
-
-		method = args;
-		eom = strchr(args, ' ');
-		if (eom == NULL)
-			eom = strchr(args, '\t');
-		if (eom != NULL)
-			*eom++ = '\0';
-		if (strcasecmp(method, "PLAIN") == 0)
-			smtp_rfc4954_auth_plain(s, eom);
-		else if (strcasecmp(method, "LOGIN") == 0)
-			smtp_rfc4954_auth_login(s, eom);
-		else
-			smtp_reply(s, "504 %s %s: AUTH method \"%s\" not supported",
-			    esc_code(ESC_STATUS_PERMFAIL, ESC_SECURITY_FEATURES_NOT_SUPPORTED),
-			    esc_description(ESC_SECURITY_FEATURES_NOT_SUPPORTED),
-			    method);
+		smtp_proceed_auth(s, args);
 		break;
 
 	case CMD_MAIL_FROM:
 		if (! smtp_check_mail_from(s))
 			break;
-
-		smtp_tx_mail_from(s->tx, args);
+		smtp_proceed_mail_from(s, args);
 		break;
 
 	/*
@@ -1143,58 +1111,38 @@ smtp_command(struct smtp_session *s, char *line)
 	case CMD_RCPT_TO:
 		if (! smtp_check_rcpt_to(s))
 			break;
-
-		smtp_tx_rcpt_to(s->tx, args);
+		smtp_proceed_rcpt_to(s, args);
 		break;
 
 	case CMD_RSET:
 		if (! smtp_check_rset(s))
 			break;
-
-		if (s->tx) {
-			if (s->tx->msgid)
-				smtp_tx_rollback(s->tx);
-			smtp_tx_free(s->tx);
-		}
-
-		smtp_reply(s, "250 %s: Reset state",
-		    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
+		smtp_proceed_rset(s);
 		break;
 
 	case CMD_DATA:
 		if (! smtp_check_data(s))
 			break;
-
-		smtp_tx_open_message(s->tx);
+		smtp_proceed_data(s);
 		break;
 
 	/*
 	 * ANY
 	 */
 	case CMD_QUIT:
-		smtp_reply(s, "221 %s: Bye",
-		    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
-		smtp_enter_state(s, STATE_QUIT);
+		smtp_proceed_quit(s);
 		break;
 
 	case CMD_NOOP:
-		smtp_reply(s, "250 %s: Ok",
-		    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
+		smtp_proceed_noop(s);
 		break;
 
 	case CMD_HELP:
-		smtp_reply(s, "214- This is " SMTPD_NAME);
-		smtp_reply(s, "214- To report bugs in the implementation, "
-		    "please contact bugs@openbsd.org");
-		smtp_reply(s, "214- with full details");
-		smtp_reply(s, "214 %s: End of HELP info",
-		    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
+		smtp_proceed_help(s);
 		break;
 
 	case CMD_WIZ:
-		smtp_reply(s, "500 %s %s: this feature is not supported yet ;-)",
-			    esc_code(ESC_STATUS_PERMFAIL, ESC_INVALID_COMMAND),
-			    esc_description(ESC_INVALID_COMMAND));
+		smtp_proceed_wiz(s);
 		break;
 
 	default:
@@ -2380,4 +2328,131 @@ smtp_check_data(struct smtp_session *s)
 	}
 
 	return 1;
+}
+
+
+static void
+smtp_proceed_rset(struct smtp_session *s)
+{
+	if (s->tx) {
+		if (s->tx->msgid)
+			smtp_tx_rollback(s->tx);
+		smtp_tx_free(s->tx);
+	}
+
+	smtp_reply(s, "250 %s: Reset state",
+	    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
+}
+
+static void
+smtp_proceed_helo(struct smtp_session *s, int cmd, char *args)
+{
+	(void)strlcpy(s->helo, args, sizeof(s->helo));
+	s->flags &= SF_SECURE | SF_AUTHENTICATED | SF_VERIFIED;
+	if (cmd == CMD_EHLO) {
+		s->flags |= SF_EHLO;
+		s->flags |= SF_8BITMIME;
+	}
+
+	smtp_enter_state(s, STATE_HELO);
+	smtp_reply(s, "250%c%s Hello %s [%s], pleased to meet you",
+	    (s->flags & SF_EHLO) ? '-' : ' ',
+	    s->smtpname,
+	    s->helo,
+	    ss_to_text(&s->ss));
+
+	if (s->flags & SF_EHLO) {
+		smtp_reply(s, "250-8BITMIME");
+		smtp_reply(s, "250-ENHANCEDSTATUSCODES");
+		smtp_reply(s, "250-SIZE %zu", env->sc_maxsize);
+		if (ADVERTISE_EXT_DSN(s))
+			smtp_reply(s, "250-DSN");
+		if (ADVERTISE_TLS(s))
+			smtp_reply(s, "250-STARTTLS");
+		if (ADVERTISE_AUTH(s))
+			smtp_reply(s, "250-AUTH PLAIN LOGIN");
+		smtp_reply(s, "250 HELP");
+	}
+}
+
+static void
+smtp_proceed_auth(struct smtp_session *s, char *args)
+{
+	char *eom, *method;
+
+	method = args;
+	eom = strchr(args, ' ');
+	if (eom == NULL)
+		eom = strchr(args, '\t');
+	if (eom != NULL)
+		*eom++ = '\0';
+	if (strcasecmp(method, "PLAIN") == 0)
+		smtp_rfc4954_auth_plain(s, eom);
+	else if (strcasecmp(method, "LOGIN") == 0)
+		smtp_rfc4954_auth_login(s, eom);
+	else
+		smtp_reply(s, "504 %s %s: AUTH method \"%s\" not supported",
+		    esc_code(ESC_STATUS_PERMFAIL, ESC_SECURITY_FEATURES_NOT_SUPPORTED),
+		    esc_description(ESC_SECURITY_FEATURES_NOT_SUPPORTED),
+		    method);
+}
+
+static void
+smtp_proceed_starttls(struct smtp_session *s)
+{
+	smtp_reply(s, "220 %s: Ready to start TLS",
+	    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
+	smtp_enter_state(s, STATE_TLS);
+}
+
+static void
+smtp_proceed_mail_from(struct smtp_session *s, char *args)
+{
+	smtp_tx_mail_from(s->tx, args);
+}
+
+static void
+smtp_proceed_rcpt_to(struct smtp_session *s, char *args)
+{
+	smtp_tx_rcpt_to(s->tx, args);
+}
+
+static void
+smtp_proceed_data(struct smtp_session *s)
+{
+	smtp_tx_open_message(s->tx);
+}
+
+static void
+smtp_proceed_quit(struct smtp_session *s)
+{
+	smtp_reply(s, "221 %s: Bye",
+	    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
+	smtp_enter_state(s, STATE_QUIT);
+}
+
+static void
+smtp_proceed_noop(struct smtp_session *s)
+{
+	smtp_reply(s, "250 %s: Ok",
+	    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
+}
+
+static void
+smtp_proceed_help(struct smtp_session *s)
+{
+	smtp_reply(s, "214- This is " SMTPD_NAME);
+	smtp_reply(s, "214- To report bugs in the implementation, "
+	    "please contact bugs@openbsd.org");
+	smtp_reply(s, "214- with full details");
+	smtp_reply(s, "214 %s: End of HELP info",
+	    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
+}
+
+static void
+smtp_proceed_wiz(struct smtp_session *s)
+{
+	smtp_reply(s, "500 %s %s: this feature is not supported yet ;-)",
+	    esc_code(ESC_STATUS_PERMFAIL, ESC_INVALID_COMMAND),
+	    esc_description(ESC_INVALID_COMMAND));
 }
