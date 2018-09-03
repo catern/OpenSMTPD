@@ -981,7 +981,6 @@ enum lka_resp_status {
 enum lka_filter_status {
 	FILTER_PROCEED,
 	FILTER_REJECT,
-	FILTER_TAG,
 };
 
 enum ca_resp_status {
