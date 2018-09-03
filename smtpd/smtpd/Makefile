@@ -22,6 +22,7 @@ SRCS+=	iobuf.c
 SRCS+=	ioev.c
 SRCS+=	limit.c
 SRCS+=	lka.c
+SRCS+=	lka_filter.c
 SRCS+=	lka_session.c
 SRCS+=	log.c
 SRCS+=	mailaddr.c

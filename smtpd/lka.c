@@ -399,14 +399,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_get_string(&m, &filter_param);
 		m_end(&m);
 
-		log_debug("got filtering request from SMTP phase %d = %s", smtp_phase, filter_param);
-
-		m_create(p, IMSG_SMTP_FILTER, 0, 0, -1);
-		m_add_id(p, reqid);
-		m_add_int(p, smtp_phase);
-		m_add_int(p, FILTER_PROCEED);
-		m_add_string(p, filter_param);
-		m_close(p);
+		lka_filter(reqid, smtp_phase, filter_param);
 
 		return;
 

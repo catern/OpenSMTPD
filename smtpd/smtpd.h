@@ -978,6 +978,21 @@ enum lka_resp_status {
 	LKA_PERMFAIL
 };
 
+enum smtp_command {
+	CMD_HELO = 0,
+	CMD_EHLO,
+	CMD_STARTTLS,
+	CMD_AUTH,
+	CMD_MAIL_FROM,
+	CMD_RCPT_TO,
+	CMD_DATA,
+	CMD_RSET,
+	CMD_QUIT,
+	CMD_HELP,
+	CMD_WIZ,
+	CMD_NOOP,
+};
+
 enum lka_filter_status {
 	FILTER_PROCEED,
 	FILTER_REJECT,
@@ -1218,6 +1233,10 @@ int limit_mta_set(struct mta_limits *, const char*, int64_t);
 
 /* lka.c */
 int lka(void);
+
+
+/* lka_filter.c */
+void lka_filter(uint64_t, int, const char *);
 
 
 /* lka_session.c */

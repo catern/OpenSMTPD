@@ -84,6 +84,7 @@ enum {
 	TX_ERROR_INTERNAL,
 };
 
+/*
 enum smtp_command {
 	CMD_HELO = 0,
 	CMD_EHLO,
@@ -98,6 +99,7 @@ enum smtp_command {
 	CMD_WIZ,
 	CMD_NOOP,
 };
+*/
 
 struct smtp_rcpt {
 	TAILQ_ENTRY(smtp_rcpt)	 entry;
@@ -180,8 +182,8 @@ static void smtp_auth_failure_resume(int, short, void *);
 static int  smtp_tx(struct smtp_session *);
 static void smtp_tx_free(struct smtp_tx *);
 static void smtp_tx_create_message(struct smtp_tx *);
-static void smtp_tx_mail_from(struct smtp_tx *, char *);
-static void smtp_tx_rcpt_to(struct smtp_tx *, char *);
+static void smtp_tx_mail_from(struct smtp_tx *, const char *);
+static void smtp_tx_rcpt_to(struct smtp_tx *, const char *);
 static void smtp_tx_open_message(struct smtp_tx *);
 static void smtp_tx_commit(struct smtp_tx *);
 static void smtp_tx_rollback(struct smtp_tx *);
@@ -200,45 +202,49 @@ static int  smtp_check_rcpt_to(struct smtp_session *);
 static int  smtp_check_data(struct smtp_session *);
 
 static void smtp_filter_rset(struct smtp_session *);
-static void smtp_filter_helo(struct smtp_session *, char *);
-static void smtp_filter_ehlo(struct smtp_session *, char *);
-static void smtp_filter_auth(struct smtp_session *, char *);
+static void smtp_filter_helo(struct smtp_session *, const char *);
+static void smtp_filter_ehlo(struct smtp_session *, const char *);
+static void smtp_filter_auth(struct smtp_session *, const char *);
 static void smtp_filter_starttls(struct smtp_session *);
-static void smtp_filter_mail_from(struct smtp_session *, char *);
-static void smtp_filter_rcpt_to(struct smtp_session *, char *);
+static void smtp_filter_mail_from(struct smtp_session *, const char *);
+static void smtp_filter_rcpt_to(struct smtp_session *, const char *);
 static void smtp_filter_data(struct smtp_session *);
 static void smtp_filter_noop(struct smtp_session *);
 static void smtp_filter_help(struct smtp_session *);
 static void smtp_filter_wiz(struct smtp_session *);
 static void smtp_filter_quit(struct smtp_session *);
 
-static void smtp_proceed_rset(struct smtp_session *, char *);
-static void smtp_proceed_helo(struct smtp_session *, char *);
-static void smtp_proceed_ehlo(struct smtp_session *, char *);
-static void smtp_proceed_auth(struct smtp_session *, char *);
-static void smtp_proceed_starttls(struct smtp_session *, char *);
-static void smtp_proceed_mail_from(struct smtp_session *, char *);
-static void smtp_proceed_rcpt_to(struct smtp_session *, char *);
-static void smtp_proceed_data(struct smtp_session *, char *);
-static void smtp_proceed_noop(struct smtp_session *, char *);
-static void smtp_proceed_help(struct smtp_session *, char *);
-static void smtp_proceed_wiz(struct smtp_session *, char *);
-static void smtp_proceed_quit(struct smtp_session *, char *);
+static void smtp_proceed_rset(struct smtp_session *, const char *);
+static void smtp_proceed_helo(struct smtp_session *, const char *);
+static void smtp_proceed_ehlo(struct smtp_session *, const char *);
+static void smtp_proceed_auth(struct smtp_session *, const char *);
+static void smtp_proceed_starttls(struct smtp_session *, const char *);
+static void smtp_proceed_mail_from(struct smtp_session *, const char *);
+static void smtp_proceed_rcpt_to(struct smtp_session *, const char *);
+static void smtp_proceed_data(struct smtp_session *, const char *);
+static void smtp_proceed_noop(struct smtp_session *, const char *);
+static void smtp_proceed_help(struct smtp_session *, const char *);
+static void smtp_proceed_wiz(struct smtp_session *, const char *);
+static void smtp_proceed_quit(struct smtp_session *, const char *);
 
 
-static struct { int code; const char *cmd; } commands[] = {
-	{ CMD_HELO,		"HELO" },
-	{ CMD_EHLO,		"EHLO" },
-	{ CMD_STARTTLS,		"STARTTLS" },
-	{ CMD_AUTH,		"AUTH" },
-	{ CMD_MAIL_FROM,	"MAIL FROM" },
-	{ CMD_RCPT_TO,		"RCPT TO" },
-	{ CMD_DATA,		"DATA" },
-	{ CMD_RSET,		"RSET" },
-	{ CMD_QUIT,		"QUIT" },
-	{ CMD_HELP,		"HELP" },
-	{ CMD_WIZ,		"WIZ" },
-	{ CMD_NOOP,		"NOOP" },
+static struct {
+	int code;
+	const char *cmd;
+	void (*cb)(struct smtp_session *, const char *);
+} commands[] = {
+	{ CMD_HELO,		"HELO",		smtp_proceed_helo },
+	{ CMD_EHLO,		"EHLO",		smtp_proceed_ehlo },
+	{ CMD_STARTTLS,		"STARTTLS",	smtp_proceed_starttls },
+	{ CMD_AUTH,		"AUTH",		smtp_proceed_auth },
+	{ CMD_MAIL_FROM,	"MAIL FROM",	smtp_proceed_mail_from },
+	{ CMD_RCPT_TO,		"RCPT TO",	smtp_proceed_rcpt_to },
+	{ CMD_DATA,		"DATA",		smtp_proceed_data },
+	{ CMD_RSET,		"RSET",		smtp_proceed_rset },
+	{ CMD_QUIT,		"QUIT",		smtp_proceed_quit },
+	{ CMD_HELP,		"HELP",		smtp_proceed_help },
+	{ CMD_WIZ,		"WIZ",		smtp_proceed_wiz },
+	{ CMD_NOOP,		"NOOP",		smtp_proceed_noop },
 	{ -1, NULL },
 };
 
@@ -895,50 +901,10 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 
 		s = tree_xpop(&wait_filters, reqid);
 
-		log_debug("### BACK FROM FILTERS: %d => %s", filter_response, filter_param);
-		if (filter_response == FILTER_REJECT) {
-			smtp_reply(s, filter_param);
-		}
-		else if (filter_response == FILTER_PROCEED) {
-			switch (filter_phase) {
-			case CMD_HELO:
-				smtp_proceed_helo(s, filter_param);
-				break;
-			case CMD_EHLO:
-				smtp_proceed_ehlo(s, filter_param);
-				break;
-			case CMD_RSET:
-				smtp_proceed_rset(s, filter_param);
-				break;
-			case CMD_AUTH:
-				smtp_proceed_auth(s, filter_param);
-				break;
-			case CMD_STARTTLS:
-				smtp_proceed_starttls(s, filter_param);
-				break;
-			case CMD_MAIL_FROM:
-				smtp_proceed_mail_from(s, filter_param);
-				break;
-			case CMD_RCPT_TO:
-				smtp_proceed_rcpt_to(s, filter_param);
-				break;
-			case CMD_DATA:
-				smtp_proceed_data(s, filter_param);
-				break;
-			case CMD_NOOP:
-				smtp_proceed_noop(s, filter_param);
-				break;
-			case CMD_HELP:
-				smtp_proceed_help(s, filter_param);
-				break;
-			case CMD_WIZ:
-				smtp_proceed_wiz(s, filter_param);
-				break;
-			case CMD_QUIT:
-				smtp_proceed_quit(s, filter_param);
-				break;
-			}
-		}
+		if (filter_response == FILTER_REJECT)
+			smtp_reply(s, "%s", filter_param);
+		else if (filter_response == FILTER_PROCEED)
+			commands[filter_phase].cb(s, filter_param);
 
 		return;
 	}
@@ -1451,7 +1417,7 @@ smtp_check_data(struct smtp_session *s)
 }
 
 static void
-smtp_query_filters(struct smtp_session *s, int cmd, char *args)
+smtp_query_filters(struct smtp_session *s, int cmd, const char *args)
 {
 	m_create(p_lka, IMSG_SMTP_FILTER, 0, 0, -1);
 	m_add_id(p_lka, s->id);
@@ -1469,19 +1435,19 @@ smtp_filter_rset(struct smtp_session *s)
 }
 
 static void
-smtp_filter_helo(struct smtp_session *s, char *args)
+smtp_filter_helo(struct smtp_session *s, const char *args)
 {
 	smtp_query_filters(s, CMD_HELO, args);
 }
 
 static void
-smtp_filter_ehlo(struct smtp_session *s, char *args)
+smtp_filter_ehlo(struct smtp_session *s, const char *args)
 {
 	smtp_query_filters(s, CMD_EHLO, args);
 }
 
 static void
-smtp_filter_auth(struct smtp_session *s, char *args)
+smtp_filter_auth(struct smtp_session *s, const char *args)
 {
 	smtp_query_filters(s, CMD_AUTH, args);
 }
@@ -1493,13 +1459,13 @@ smtp_filter_starttls(struct smtp_session *s)
 }
 
 static void
-smtp_filter_mail_from(struct smtp_session *s, char *args)
+smtp_filter_mail_from(struct smtp_session *s, const char *args)
 {
 	smtp_query_filters(s, CMD_MAIL_FROM, args);
 }
 
 static void
-smtp_filter_rcpt_to(struct smtp_session *s, char *args)
+smtp_filter_rcpt_to(struct smtp_session *s, const char *args)
 {
 	smtp_query_filters(s, CMD_RCPT_TO, args);
 }
@@ -1535,7 +1501,7 @@ smtp_filter_wiz(struct smtp_session *s)
 }
 
 static void
-smtp_proceed_rset(struct smtp_session *s, char *args)
+smtp_proceed_rset(struct smtp_session *s, const char *args)
 {
 	if (s->tx) {
 		if (s->tx->msgid)
@@ -1548,7 +1514,7 @@ smtp_proceed_rset(struct smtp_session *s, char *args)
 }
 
 static void
-smtp_proceed_helo(struct smtp_session *s, char *args)
+smtp_proceed_helo(struct smtp_session *s, const char *args)
 {
 	(void)strlcpy(s->helo, args, sizeof(s->helo));
 	s->flags &= SF_SECURE | SF_AUTHENTICATED | SF_VERIFIED;
@@ -1561,7 +1527,7 @@ smtp_proceed_helo(struct smtp_session *s, char *args)
 }
 
 static void
-smtp_proceed_ehlo(struct smtp_session *s, char *args)
+smtp_proceed_ehlo(struct smtp_session *s, const char *args)
 {
 	(void)strlcpy(s->helo, args, sizeof(s->helo));
 	s->flags &= SF_SECURE | SF_AUTHENTICATED | SF_VERIFIED;
@@ -1587,11 +1553,14 @@ smtp_proceed_ehlo(struct smtp_session *s, char *args)
 }
 
 static void
-smtp_proceed_auth(struct smtp_session *s, char *args)
+smtp_proceed_auth(struct smtp_session *s, const char *args)
 {
+	char tmp[SMTP_LINE_MAX];
 	char *eom, *method;
 
-	method = args;
+	(void)strlcpy(tmp, args, sizeof tmp);
+	
+	method = tmp;
 	eom = strchr(args, ' ');
 	if (eom == NULL)
 		eom = strchr(args, '\t');
@@ -1609,7 +1578,7 @@ smtp_proceed_auth(struct smtp_session *s, char *args)
 }
 
 static void
-smtp_proceed_starttls(struct smtp_session *s, char *args)
+smtp_proceed_starttls(struct smtp_session *s, const char *args)
 {
 	smtp_reply(s, "220 %s: Ready to start TLS",
 	    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
@@ -1617,25 +1586,25 @@ smtp_proceed_starttls(struct smtp_session *s, char *args)
 }
 
 static void
-smtp_proceed_mail_from(struct smtp_session *s, char *args)
+smtp_proceed_mail_from(struct smtp_session *s, const char *args)
 {
 	smtp_tx_mail_from(s->tx, args);
 }
 
 static void
-smtp_proceed_rcpt_to(struct smtp_session *s, char *args)
+smtp_proceed_rcpt_to(struct smtp_session *s, const char *args)
 {
 	smtp_tx_rcpt_to(s->tx, args);
 }
 
 static void
-smtp_proceed_data(struct smtp_session *s, char *args)
+smtp_proceed_data(struct smtp_session *s, const char *args)
 {
 	smtp_tx_open_message(s->tx);
 }
 
 static void
-smtp_proceed_quit(struct smtp_session *s, char *args)
+smtp_proceed_quit(struct smtp_session *s, const char *args)
 {
 	smtp_reply(s, "221 %s: Bye",
 	    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
@@ -1643,14 +1612,14 @@ smtp_proceed_quit(struct smtp_session *s, char *args)
 }
 
 static void
-smtp_proceed_noop(struct smtp_session *s, char *args)
+smtp_proceed_noop(struct smtp_session *s, const char *args)
 {
 	smtp_reply(s, "250 %s: Ok",
 	    esc_code(ESC_STATUS_OK, ESC_OTHER_STATUS));
 }
 
 static void
-smtp_proceed_help(struct smtp_session *s, char *args)
+smtp_proceed_help(struct smtp_session *s, const char *args)
 {
 	smtp_reply(s, "214- This is " SMTPD_NAME);
 	smtp_reply(s, "214- To report bugs in the implementation, "
@@ -1661,7 +1630,7 @@ smtp_proceed_help(struct smtp_session *s, char *args)
 }
 
 static void
-smtp_proceed_wiz(struct smtp_session *s, char *args)
+smtp_proceed_wiz(struct smtp_session *s, const char *args)
 {
 	smtp_reply(s, "500 %s %s: this feature is not supported yet ;-)",
 	    esc_code(ESC_STATUS_PERMFAIL, ESC_INVALID_COMMAND),
@@ -2194,11 +2163,16 @@ smtp_tx_free(struct smtp_tx *tx)
 }
 
 static void
-smtp_tx_mail_from(struct smtp_tx *tx, char *line)
+smtp_tx_mail_from(struct smtp_tx *tx, const char *line)
 {
 	char *opt;
+	char *copy;
+	char tmp[SMTP_LINE_MAX];
+	
+	(void)strlcpy(tmp, line, sizeof tmp);
+	copy = tmp;
 
-	if (smtp_mailaddr(&tx->evp.sender, line, 1, &line,
+	if (smtp_mailaddr(&tx->evp.sender, copy, 1, &copy,
 		tx->session->smtpname) == 0) {
 		smtp_reply(tx->session, "553 %s: Sender address syntax error",
 		    esc_code(ESC_STATUS_PERMFAIL, ESC_OTHER_ADDRESS_STATUS));
@@ -2206,7 +2180,7 @@ smtp_tx_mail_from(struct smtp_tx *tx, char *line)
 		return;
 	}
 
-	while ((opt = strsep(&line, " "))) {
+	while ((opt = strsep(&copy, " "))) {
 		if (*opt == '\0')
 			continue;
 
@@ -2270,10 +2244,15 @@ smtp_tx_create_message(struct smtp_tx *tx)
 }
 
 static void
-smtp_tx_rcpt_to(struct smtp_tx *tx, char *line)
+smtp_tx_rcpt_to(struct smtp_tx *tx, const char *line)
 {
 	char *opt, *p;
-
+	char *copy;
+	char tmp[SMTP_LINE_MAX];
+	
+	(void)strlcpy(tmp, line, sizeof tmp);
+	copy = tmp;
+	
 	if (tx->rcptcount >= env->sc_session_max_rcpt) {
 		smtp_reply(tx->session, "451 %s %s: Too many recipients",
 		    esc_code(ESC_STATUS_TEMPFAIL, ESC_TOO_MANY_RECIPIENTS),
@@ -2281,7 +2260,7 @@ smtp_tx_rcpt_to(struct smtp_tx *tx, char *line)
 		return;
 	}
 
-	if (smtp_mailaddr(&tx->evp.rcpt, line, 0, &line,
+	if (smtp_mailaddr(&tx->evp.rcpt, copy, 0, &copy,
 	    tx->session->smtpname) == 0) {
 		smtp_reply(tx->session,
 		    "501 %s: Recipient address syntax error",
@@ -2290,7 +2269,7 @@ smtp_tx_rcpt_to(struct smtp_tx *tx, char *line)
 		return;
 	}
 
-	while ((opt = strsep(&line, " "))) {
+	while ((opt = strsep(&copy, " "))) {
 		if (*opt == '\0')
 			continue;
 
