@@ -303,6 +303,8 @@ enum imsg_type {
 	IMSG_SMTP_EVENT_ROLLBACK,
 	IMSG_SMTP_EVENT_DISCONNECT,
 
+	IMSG_SMTP_FILTER,
+
 	IMSG_CA_PRIVENC,
 	IMSG_CA_PRIVDEC
 };
@@ -974,6 +976,12 @@ enum lka_resp_status {
 	LKA_OK,
 	LKA_TEMPFAIL,
 	LKA_PERMFAIL
+};
+
+enum lka_filter_status {
+	FILTER_PROCEED,
+	FILTER_REJECT,
+	FILTER_TAG,
 };
 
 enum ca_resp_status {

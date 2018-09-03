@@ -82,6 +82,8 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 	const char		*tablename, *username, *password, *label;
 	uint64_t		 reqid;
 	int			 v;
+	int			 smtp_phase;
+	const char		*filter_param;
 
 	if (imsg == NULL)
 		lka_shutdown();
@@ -389,6 +391,25 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		    (ret == 1) ? IMSG_CTL_OK : IMSG_CTL_FAIL,
 		    imsg->hdr.peerid, 0, -1, NULL, 0);
 		return;
+
+	case IMSG_SMTP_FILTER:
+		m_msg(&m, imsg);
+		m_get_id(&m, &reqid);
+		m_get_int(&m, &smtp_phase);
+		m_get_string(&m, &filter_param);
+		m_end(&m);
+
+		log_debug("got filtering request from SMTP phase %d = %s", smtp_phase, filter_param);
+
+		m_create(p, IMSG_SMTP_FILTER, 0, 0, -1);
+		m_add_id(p, reqid);
+		m_add_int(p, smtp_phase);
+		m_add_int(p, FILTER_PROCEED);
+		m_add_string(p, filter_param);
+		m_close(p);
+
+		return;
+
 	}
 
 	errx(1, "lka_imsg: unexpected %s imsg", imsg_to_str(imsg->hdr.type));
