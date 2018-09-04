@@ -328,6 +328,20 @@ enum table_type {
 	T_HASH		= 0x04,	/* table holding a hash table	*/
 };
 
+enum filter_phase {
+	FILTER_HELO = 0,
+	FILTER_EHLO,
+	FILTER_STARTTLS,
+	FILTER_AUTH,
+	FILTER_MAIL_FROM,
+	FILTER_RCPT_TO,
+	FILTER_DATA,
+	FILTER_RSET,
+	FILTER_QUIT,
+	FILTER_NOOP,
+	FILTER_PHASES_COUNT	/* must be last */
+};
+
 struct table {
 	char				 t_name[LINE_MAX];
 	enum table_type			 t_type;
@@ -549,6 +563,10 @@ struct smtpd {
 	TAILQ_HEAD(listenerlist, listener)	*sc_listeners;
 
 	TAILQ_HEAD(rulelist, rule)		*sc_rules;
+	TAILQ_HEAD(filterrules, filter_rule)	sc_filter_rules[FILTER_PHASES_COUNT];
+
+
+	
 	struct dict				*sc_dispatchers;
 	struct dispatcher			*sc_dispatcher_bounce;
 
@@ -978,22 +996,21 @@ enum lka_resp_status {
 	LKA_PERMFAIL
 };
 
-enum smtp_command {
-	CMD_HELO = 0,
-	CMD_EHLO,
-	CMD_STARTTLS,
-	CMD_AUTH,
-	CMD_MAIL_FROM,
-	CMD_RCPT_TO,
-	CMD_DATA,
-	CMD_RSET,
-	CMD_QUIT,
-	CMD_HELP,
-	CMD_WIZ,
-	CMD_NOOP,
+struct filter_rule {
+	TAILQ_ENTRY(filter_rule)	entry;
+
+	enum filter_phase		phase;
+	char			       *reject;
+	
+	union {
+		struct helo {
+			uint8_t		rdns;
+			uint8_t		fqdn;
+		} helo;
+	} u;
 };
 
-enum lka_filter_status {
+enum filter_status {
 	FILTER_PROCEED,
 	FILTER_REJECT,
 };

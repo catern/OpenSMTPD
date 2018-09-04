@@ -84,7 +84,6 @@ enum {
 	TX_ERROR_INTERNAL,
 };
 
-/*
 enum smtp_command {
 	CMD_HELO = 0,
 	CMD_EHLO,
@@ -99,7 +98,6 @@ enum smtp_command {
 	CMD_WIZ,
 	CMD_NOOP,
 };
-*/
 
 struct smtp_rcpt {
 	TAILQ_ENTRY(smtp_rcpt)	 entry;
@@ -210,8 +208,6 @@ static void smtp_filter_mail_from(struct smtp_session *, const char *);
 static void smtp_filter_rcpt_to(struct smtp_session *, const char *);
 static void smtp_filter_data(struct smtp_session *);
 static void smtp_filter_noop(struct smtp_session *);
-static void smtp_filter_help(struct smtp_session *);
-static void smtp_filter_wiz(struct smtp_session *);
 static void smtp_filter_quit(struct smtp_session *);
 
 static void smtp_proceed_rset(struct smtp_session *, const char *);
@@ -1188,11 +1184,11 @@ smtp_command(struct smtp_session *s, char *line)
 		break;
 
 	case CMD_HELP:
-		smtp_filter_help(s);
+		smtp_proceed_help(s, NULL);
 		break;
 
 	case CMD_WIZ:
-		smtp_filter_wiz(s);
+		smtp_proceed_wiz(s, NULL);
 		break;
 
 	default:
@@ -1431,73 +1427,61 @@ smtp_query_filters(struct smtp_session *s, int cmd, const char *args)
 static void
 smtp_filter_rset(struct smtp_session *s)
 {
-	smtp_query_filters(s, CMD_RSET, "");
+	smtp_query_filters(s, FILTER_RSET, "");
 }
 
 static void
 smtp_filter_helo(struct smtp_session *s, const char *args)
 {
-	smtp_query_filters(s, CMD_HELO, args);
+	smtp_query_filters(s, FILTER_HELO, args);
 }
 
 static void
 smtp_filter_ehlo(struct smtp_session *s, const char *args)
 {
-	smtp_query_filters(s, CMD_EHLO, args);
+	smtp_query_filters(s, FILTER_EHLO, args);
 }
 
 static void
 smtp_filter_auth(struct smtp_session *s, const char *args)
 {
-	smtp_query_filters(s, CMD_AUTH, args);
+	smtp_query_filters(s, FILTER_AUTH, args);
 }
 
 static void
 smtp_filter_starttls(struct smtp_session *s)
 {
-	smtp_query_filters(s, CMD_STARTTLS, "");
+	smtp_query_filters(s, FILTER_STARTTLS, "");
 }
 
 static void
 smtp_filter_mail_from(struct smtp_session *s, const char *args)
 {
-	smtp_query_filters(s, CMD_MAIL_FROM, args);
+	smtp_query_filters(s, FILTER_MAIL_FROM, args);
 }
 
 static void
 smtp_filter_rcpt_to(struct smtp_session *s, const char *args)
 {
-	smtp_query_filters(s, CMD_RCPT_TO, args);
+	smtp_query_filters(s, FILTER_RCPT_TO, args);
 }
 
 static void
 smtp_filter_data(struct smtp_session *s)
 {
-	smtp_query_filters(s, CMD_DATA, "");
+	smtp_query_filters(s, FILTER_DATA, "");
 }
 
 static void
 smtp_filter_quit(struct smtp_session *s)
 {
-	smtp_query_filters(s, CMD_QUIT, "");
+	smtp_query_filters(s, FILTER_QUIT, "");
 }
 
 static void
 smtp_filter_noop(struct smtp_session *s)
 {
-	smtp_query_filters(s, CMD_NOOP, "");
-}
-
-static void
-smtp_filter_help(struct smtp_session *s)
-{
-	smtp_query_filters(s, CMD_HELP, "");
-}
-
-static void
-smtp_filter_wiz(struct smtp_session *s)
-{
-	smtp_query_filters(s, CMD_WIZ, "");
+	smtp_query_filters(s, FILTER_NOOP, "");
 }
 
 static void

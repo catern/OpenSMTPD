@@ -105,6 +105,7 @@ static struct ca	*sca;
 
 struct dispatcher	*dispatcher;
 struct rule		*rule;
+struct filter_rule     	*filter_rule;
 
 
 enum listen_options {
@@ -174,8 +175,9 @@ typedef struct {
 %token	ACTION ALIAS ANY ARROW AUTH AUTH_OPTIONAL
 %token	BACKUP BOUNCE
 %token	CA CERT CIPHERS COMPRESSION
-%token	DHE DOMAIN
-%token	ENCRYPTION ERROR EXPAND_ONLY
+%token	CHECK_FQDN CHECK_RDNS
+%token	DATA DHE DOMAIN
+%token	EHLO ENCRYPTION ERROR EXPAND_ONLY
 %token	FILTER FOR FORWARD_ONLY FROM
 %token	HELO HELO_SRC HOST HOSTNAME HOSTNAMES
 %token	INCLUDE INET4 INET6
@@ -183,11 +185,11 @@ typedef struct {
 %token	KEY
 %token	LIMIT LISTEN LMTP LOCAL
 %token	MAIL_FROM MAILDIR MASK_SRC MASQUERADE MATCH MAX_MESSAGE_SIZE MAX_DEFERRED MBOX MDA MTA MX
-%token	NODSN NOVERIFY
+%token	NO_DSN NO_VERIFY NOOP
 %token	ON
 %token	PKI PORT
-%token	QUEUE
-%token	RCPT_TO RECIPIENT RECEIVEDAUTH RELAY REJECT
+%token	QUEUE QUIT
+%token	RCPT_TO RECIPIENT RECEIVEDAUTH RELAY REJECT RSET
 %token	SCHEDULER SENDER SENDERS SMTP SMTPS SOCKET SRC SUB_ADDR_DELIM
 %token	TABLE TAG TAGGED TLS TLS_REQUIRE TO TTL
 %token	USER USERBASE
@@ -217,6 +219,7 @@ grammar		: /* empty */
 		| grammar table '\n'
 		| grammar dispatcher '\n'
 		| grammar match '\n'
+		| grammar filter '\n'
 		| grammar error '\n'		{ file->errors++; }
 		;
 
@@ -739,7 +742,7 @@ HELO STRING {
 
 	dispatcher->u.remote.smarthost = strdup(t->t_name);
 }
-| TLS NOVERIFY {
+| TLS NO_VERIFY {
 	if (dispatcher->u.remote.smarthost == NULL) {
 		yyerror("tls no-verify may not be specified without host on a dispatcher");
 		YYERROR;
@@ -1053,6 +1056,90 @@ MATCH {
 	}
 	TAILQ_INSERT_TAIL(conf->sc_rules, rule, r_entry);
 	rule = NULL;
+}
+;
+
+filter_phase_helo_options:
+CHECK_FQDN {
+	filter_rule->u.helo.fqdn = 1;
+}
+|
+CHECK_RDNS {
+	filter_rule->u.helo.rdns = 1;
+}
+;
+
+filter_phase_helo:
+HELO {
+	filter_rule->phase = FILTER_HELO;
+} filter_phase_helo_options
+;
+
+filter_phase_ehlo:
+EHLO {
+	filter_rule->phase = FILTER_EHLO;
+} filter_phase_helo_options
+;
+
+filter_phase_mail_from:
+MAIL_FROM {
+	filter_rule->phase = FILTER_MAIL_FROM;
+}
+;
+
+filter_phase_rcpt_to:
+RCPT_TO {
+	filter_rule->phase = FILTER_RCPT_TO;
+}
+;
+
+filter_phase_data:
+DATA {
+	filter_rule->phase = FILTER_DATA;
+}
+;
+
+filter_phase_quit:
+QUIT {
+	filter_rule->phase = FILTER_QUIT;
+}
+;
+
+filter_phase_rset:
+RSET {
+	filter_rule->phase = FILTER_RSET;
+}
+;
+
+filter_phase_noop:
+NOOP {
+	filter_rule->phase = FILTER_NOOP;
+}
+;
+
+filter_phase:
+filter_phase_helo
+| filter_phase_ehlo
+| filter_phase_mail_from
+| filter_phase_rcpt_to
+| filter_phase_data
+| filter_phase_quit
+| filter_phase_noop
+| filter_phase_rset
+;
+
+filter_action:
+REJECT STRING {
+	filter_rule->reject = $2;
+}
+;
+
+filter:
+ON {
+	filter_rule = xcalloc(1, sizeof *filter_rule);
+} filter_phase filter_action {
+	TAILQ_INSERT_TAIL(&conf->sc_filter_rules[filter_rule->phase], filter_rule, entry);
+	filter_rule = NULL;
 }
 ;
 
@@ -1402,7 +1489,7 @@ opt_if_listen : INET4 {
 			listen_opts.options |= LO_RECEIVEDAUTH;
 			listen_opts.flags |= F_RECEIVEDAUTH;
 		}
-		| NODSN	{
+		| NO_DSN	{
 			if (listen_opts.options & LO_NODSN) {
 				yyerror("no-dsn already specified");
 				YYERROR;
@@ -1603,10 +1690,14 @@ lookup(char *s)
 		{ "bounce",		BOUNCE },
 		{ "ca",			CA },
 		{ "cert",		CERT },
+		{ "check-fqdn",		CHECK_FQDN },
+		{ "check-rdns",		CHECK_RDNS },
 		{ "ciphers",		CIPHERS },
 		{ "compression",	COMPRESSION },
+		{ "data",		DATA },
 		{ "dhe",		DHE },
 		{ "domain",		DOMAIN },
+		{ "ehlo",		EHLO },
 		{ "encryption",		ENCRYPTION },
 		{ "expand-only",      	EXPAND_ONLY },
 		{ "filter",		FILTER },
@@ -1638,17 +1729,20 @@ lookup(char *s)
 		{ "mda",		MDA },
 		{ "mta",		MTA },
 		{ "mx",			MX },
-		{ "no-dsn",		NODSN },
-		{ "no-verify",		NOVERIFY },
+		{ "no-dsn",		NO_DSN },
+		{ "no-verify",		NO_VERIFY },
+		{ "noop",		NOOP },
 		{ "on",			ON },
 		{ "pki",		PKI },
 		{ "port",		PORT },
 		{ "queue",		QUEUE },
+		{ "quit",		QUIT },
 		{ "rcpt-to",		RCPT_TO },
 		{ "received-auth",     	RECEIVEDAUTH },
 		{ "recipient",		RECIPIENT },
 		{ "reject",		REJECT },
 		{ "relay",		RELAY },
+		{ "rset",		RSET },
 		{ "scheduler",		SCHEDULER },
 		{ "senders",   		SENDERS },
 		{ "smtp",		SMTP },

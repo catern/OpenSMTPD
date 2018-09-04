@@ -82,7 +82,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 	const char		*tablename, *username, *password, *label;
 	uint64_t		 reqid;
 	int			 v;
-	int			 smtp_phase;
+	int			 filter_phase;
 	const char		*filter_param;
 
 	if (imsg == NULL)
@@ -395,11 +395,11 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 	case IMSG_SMTP_FILTER:
 		m_msg(&m, imsg);
 		m_get_id(&m, &reqid);
-		m_get_int(&m, &smtp_phase);
+		m_get_int(&m, &filter_phase);
 		m_get_string(&m, &filter_param);
 		m_end(&m);
 
-		lka_filter(reqid, smtp_phase, filter_param);
+		lka_filter(reqid, filter_phase, filter_param);
 
 		return;
 
