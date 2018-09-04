@@ -565,8 +565,6 @@ struct smtpd {
 	TAILQ_HEAD(rulelist, rule)		*sc_rules;
 	TAILQ_HEAD(filterrules, filter_rule)	sc_filter_rules[FILTER_PHASES_COUNT];
 
-
-	
 	struct dict				*sc_dispatchers;
 	struct dispatcher			*sc_dispatcher_bounce;
 
@@ -1001,7 +999,7 @@ struct filter_rule {
 
 	enum filter_phase		phase;
 	char			       *reject;
-	
+
 	union {
 		struct helo {
 			struct table	*table;

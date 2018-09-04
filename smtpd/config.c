@@ -49,7 +49,7 @@ config_default(void)
 	struct table	       *t = NULL;
 	char			hostname[HOST_NAME_MAX+1];
 	uint8_t			i;
-	
+
 	if (getmailname(hostname, sizeof hostname) == -1)
 		return NULL;
 

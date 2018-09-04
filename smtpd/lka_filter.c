@@ -42,14 +42,14 @@ void
 lka_filter(uint64_t reqid, int cmd, const char *param)
 {
 	struct filter_rule	*rule;
-	
+
 	TAILQ_FOREACH(rule, &env->sc_filter_rules[cmd], entry)
 	    if (! lka_filter_execute(rule, reqid, cmd, param))
 		    return;
 
 	lka_filter_proceed(reqid, cmd, param);
 }
-	    
+
 static void
 lka_filter_proceed(uint64_t reqid, int cmd, const char *param)
 {
@@ -71,8 +71,6 @@ lka_filter_reject(uint64_t reqid, int cmd, const char *message)
 	m_add_string(p_pony, message);
 	m_close(p_pony);
 }
-
-
 
 static int
 lka_filter_execute_helo(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
@@ -154,7 +152,7 @@ lka_filter_execute_rcpt_to(struct filter_rule *rule, uint64_t reqid, int cmd, co
 	(void)strlcpy(buffer, param+1, sizeof(buffer));
 	buffer[strcspn(buffer, ">")] = '\0';
 	param = buffer;
-	
+
 	if (rule->u.rcpt_to.table)
 		if (table_lookup(rule->u.rcpt_to.table, NULL, param, K_DOMAIN, NULL) > 0)
 			goto reject;

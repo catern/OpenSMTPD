@@ -623,7 +623,7 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 	int				 filter_phase;
 	int				 filter_response;
 	const char			*filter_param;
-	
+
 	switch (imsg->hdr.type) {
 
 	case IMSG_SMTP_CHECK_SENDER:
@@ -1543,7 +1543,7 @@ smtp_proceed_auth(struct smtp_session *s, const char *args)
 	char *eom, *method;
 
 	(void)strlcpy(tmp, args, sizeof tmp);
-	
+
 	method = tmp;
 	eom = strchr(args, ' ');
 	if (eom == NULL)
@@ -2152,7 +2152,7 @@ smtp_tx_mail_from(struct smtp_tx *tx, const char *line)
 	char *opt;
 	char *copy;
 	char tmp[SMTP_LINE_MAX];
-	
+
 	(void)strlcpy(tmp, line, sizeof tmp);
 	copy = tmp;
 
@@ -2233,10 +2233,10 @@ smtp_tx_rcpt_to(struct smtp_tx *tx, const char *line)
 	char *opt, *p;
 	char *copy;
 	char tmp[SMTP_LINE_MAX];
-	
+
 	(void)strlcpy(tmp, line, sizeof tmp);
 	copy = tmp;
-	
+
 	if (tx->rcptcount >= env->sc_session_max_rcpt) {
 		smtp_reply(tx->session, "451 %s %s: Too many recipients",
 		    esc_code(ESC_STATUS_TEMPFAIL, ESC_TOO_MANY_RECIPIENTS),

@@ -450,6 +450,7 @@ hostname_match(const char *hostname, const char *pattern)
 		pattern++;
 		hostname++;
 	}
+
 	return (*hostname == '\0' && *pattern == '\0');
 }
 
