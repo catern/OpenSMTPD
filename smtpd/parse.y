@@ -177,7 +177,7 @@ typedef struct {
 %token	CA CERT CIPHERS COMPRESSION CONNECTED
 %token	CHECK_REGEX CHECK_TABLE
 %token	DATA DHE DOMAIN
-%token	EHLO ENCRYPTION ERROR EXPAND_ONLY
+%token	EHLO ENCRYPTION ERROR EXPAND_ONLY EXPERIMENTAL
 %token	FILTER FOR FORWARD_ONLY FROM
 %token	HELO HELO_SRC HOST HOSTNAME HOSTNAMES
 %token	INCLUDE INET4 INET6
@@ -465,7 +465,10 @@ SCHEDULER LIMIT limits_scheduler
 
 
 smtp:
-SMTP LIMIT limits_smtp
+SMTP EXPERIMENTAL FILTER {
+	conf->sc_smtp_experimental_filter = 1;
+}
+|SMTP LIMIT limits_smtp
 | SMTP CIPHERS STRING {
 	conf->sc_tls_ciphers = $3;
 }
@@ -1738,6 +1741,7 @@ lookup(char *s)
 		{ "ehlo",		EHLO },
 		{ "encryption",		ENCRYPTION },
 		{ "expand-only",      	EXPAND_ONLY },
+		{ "experimental",      	EXPERIMENTAL },
 		{ "filter",		FILTER },
 		{ "for",		FOR },
 		{ "forward-only",      	FORWARD_ONLY },

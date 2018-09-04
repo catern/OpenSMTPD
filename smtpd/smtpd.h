@@ -549,6 +549,8 @@ struct smtpd {
 	size_t				sc_scheduler_max_msg_batch_size;
 	size_t				sc_scheduler_max_schedule;
 
+	uint8_t				sc_smtp_experimental_filter;
+	
 	int				sc_ttl;
 #define MAX_BOUNCE_WARN			4
 	time_t				sc_bounce_warn[MAX_BOUNCE_WARN];

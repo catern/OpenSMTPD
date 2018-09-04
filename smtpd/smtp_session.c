@@ -1441,15 +1441,28 @@ smtp_check_data(struct smtp_session *s)
 }
 
 static void
-smtp_query_filters(struct smtp_session *s, int cmd, const char *args)
+smtp_query_filters(struct smtp_session *s, int filter_phase, const char *args)
 {
-	m_create(p_lka, IMSG_SMTP_FILTER, 0, 0, -1);
-	m_add_id(p_lka, s->id);
-	m_add_int(p_lka, cmd);
-	m_add_string(p_lka, args);
-	m_close(p_lka);
+	uint8_t	i;
 
-	tree_xset(&wait_filters, s->id, s);
+	if (env->sc_smtp_experimental_filter) {
+		m_create(p_lka, IMSG_SMTP_FILTER, 0, 0, -1);
+		m_add_id(p_lka, s->id);
+		m_add_int(p_lka, filter_phase);
+		m_add_string(p_lka, args);
+		m_close(p_lka);
+		tree_xset(&wait_filters, s->id, s);
+		return;
+	}
+
+	if (filter_phase == FILTER_CONNECTED) {
+		smtp_proceed_connected(s);
+		return;
+	}
+
+	for (i = 0; i < nitems(commands); ++i)
+		if (commands[i].filter_code == filter_phase)
+			commands[i].cb(s, args);
 }
 
 static void
