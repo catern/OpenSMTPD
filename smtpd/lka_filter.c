@@ -73,16 +73,41 @@ lka_filter_reject(uint64_t reqid, int cmd, const char *message)
 }
 
 
+
 static int
 lka_filter_execute_helo(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
 {
+	if (rule->u.helo.table)
+		if (table_lookup(rule->u.helo.table, NULL, param, K_DOMAIN, NULL) > 0)
+			goto reject;
+
+	if (rule->u.helo.regex)
+		if (table_lookup(rule->u.helo.regex, NULL, param, K_REGEX, NULL) > 0)
+			goto reject;
+
 	return 1;
+
+reject:
+	lka_filter_reject(reqid, cmd, rule->reject);
+	return 0;
 }
 
 static int
 lka_filter_execute_ehlo(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
 {
+	if (rule->u.ehlo.table)
+		if (table_lookup(rule->u.ehlo.table, NULL, param, K_DOMAIN, NULL) > 0)
+			goto reject;
+
+	if (rule->u.helo.regex)
+		if (table_lookup(rule->u.ehlo.regex, NULL, param, K_REGEX, NULL) > 0)
+			goto reject;
+
 	return 1;
+
+reject:
+	lka_filter_reject(reqid, cmd, rule->reject);
+	return 0;
 }
 
 static int
@@ -100,13 +125,49 @@ lka_filter_execute_auth(struct filter_rule *rule, uint64_t reqid, int cmd, const
 static int
 lka_filter_execute_mail_from(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
 {
+	char	buffer[SMTPD_MAXMAILADDRSIZE];
+
+	(void)strlcpy(buffer, param+1, sizeof(buffer));
+	buffer[strcspn(buffer, ">")] = '\0';
+	param = buffer;
+
+	if (rule->u.mail_from.table)
+		if (table_lookup(rule->u.mail_from.table, NULL, param, K_MAILADDR, NULL) > 0)
+			goto reject;
+
+	if (rule->u.helo.regex)
+		if (table_lookup(rule->u.mail_from.regex, NULL, param, K_REGEX, NULL) > 0)
+			goto reject;
+
 	return 1;
+
+reject:
+	lka_filter_reject(reqid, cmd, rule->reject);
+	return 0;
 }
 
 static int
 lka_filter_execute_rcpt_to(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
 {
+	char	buffer[SMTPD_MAXMAILADDRSIZE];
+
+	(void)strlcpy(buffer, param+1, sizeof(buffer));
+	buffer[strcspn(buffer, ">")] = '\0';
+	param = buffer;
+	
+	if (rule->u.rcpt_to.table)
+		if (table_lookup(rule->u.rcpt_to.table, NULL, param, K_DOMAIN, NULL) > 0)
+			goto reject;
+
+	if (rule->u.helo.regex)
+		if (table_lookup(rule->u.rcpt_to.regex, NULL, param, K_REGEX, NULL) > 0)
+			goto reject;
+
 	return 1;
+
+reject:
+	lka_filter_reject(reqid, cmd, rule->reject);
+	return 0;
 }
 
 static int

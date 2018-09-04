@@ -1004,9 +1004,21 @@ struct filter_rule {
 	
 	union {
 		struct helo {
-			uint8_t		rdns;
-			uint8_t		fqdn;
+			struct table	*table;
+			struct table	*regex;
 		} helo;
+		struct ehlo {
+			struct table	*table;
+			struct table	*regex;
+		} ehlo;
+		struct mail_from {
+			struct table	*table;
+			struct table	*regex;
+		} mail_from;
+		struct rcpt_to {
+			struct table	*table;
+			struct table	*regex;
+		} rcpt_to;
 	} u;
 };
 
@@ -1479,6 +1491,7 @@ void table_add(struct table *, const char *, const char *);
 int table_domain_match(const char *, const char *);
 int table_netaddr_match(const char *, const char *);
 int table_mailaddr_match(const char *, const char *);
+int table_regex_match(const char *, const char *);
 void	table_open_all(struct smtpd *);
 void	table_dump_all(struct smtpd *);
 void	table_close_all(struct smtpd *);

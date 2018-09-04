@@ -175,7 +175,7 @@ typedef struct {
 %token	ACTION ALIAS ANY ARROW AUTH AUTH_OPTIONAL
 %token	BACKUP BOUNCE
 %token	CA CERT CIPHERS COMPRESSION
-%token	CHECK_FQDN CHECK_RDNS
+%token	CHECK_REGEX CHECK_TABLE
 %token	DATA DHE DOMAIN
 %token	EHLO ENCRYPTION ERROR EXPAND_ONLY
 %token	FILTER FOR FORWARD_ONLY FROM
@@ -1060,12 +1060,12 @@ MATCH {
 ;
 
 filter_phase_helo_options:
-CHECK_FQDN {
-	filter_rule->u.helo.fqdn = 1;
+CHECK_TABLE tables {
+	filter_rule->u.helo.table = $2;
 }
 |
-CHECK_RDNS {
-	filter_rule->u.helo.rdns = 1;
+CHECK_REGEX tables {
+	filter_rule->u.helo.regex = $2;
 }
 ;
 
@@ -1081,16 +1081,36 @@ EHLO {
 } filter_phase_helo_options
 ;
 
+filter_phase_mail_from_options:
+CHECK_TABLE tables {
+	filter_rule->u.mail_from.table = $2;
+}
+|
+CHECK_REGEX tables {
+	filter_rule->u.mail_from.regex = $2;
+}
+;
+
 filter_phase_mail_from:
 MAIL_FROM {
 	filter_rule->phase = FILTER_MAIL_FROM;
+} filter_phase_mail_from_options
+;
+
+filter_phase_rcpt_to_options:
+CHECK_TABLE tables {
+	filter_rule->u.rcpt_to.table = $2;
+}
+|
+CHECK_REGEX tables {
+	filter_rule->u.rcpt_to.regex = $2;
 }
 ;
 
 filter_phase_rcpt_to:
 RCPT_TO {
 	filter_rule->phase = FILTER_RCPT_TO;
-}
+} filter_phase_rcpt_to_options
 ;
 
 filter_phase_data:
@@ -1690,8 +1710,8 @@ lookup(char *s)
 		{ "bounce",		BOUNCE },
 		{ "ca",			CA },
 		{ "cert",		CERT },
-		{ "check-fqdn",		CHECK_FQDN },
-		{ "check-rdns",		CHECK_RDNS },
+		{ "check-regex",       	CHECK_REGEX },
+		{ "check-table",       	CHECK_TABLE },
 		{ "ciphers",		CIPHERS },
 		{ "compression",	COMPRESSION },
 		{ "data",		DATA },
