@@ -329,7 +329,8 @@ enum table_type {
 };
 
 enum filter_phase {
-	FILTER_HELO = 0,
+	FILTER_CONNECTED = 0,
+	FILTER_HELO,
 	FILTER_EHLO,
 	FILTER_STARTTLS,
 	FILTER_AUTH,
@@ -1001,6 +1002,10 @@ struct filter_rule {
 	char			       *reject;
 
 	union {
+		struct connected {
+			struct table	*table;
+			struct table	*regex;
+		} connected;
 		struct helo {
 			struct table	*table;
 			struct table	*regex;

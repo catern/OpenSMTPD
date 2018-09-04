@@ -46,7 +46,6 @@ lka_filter(uint64_t reqid, int cmd, const char *param)
 	TAILQ_FOREACH(rule, &env->sc_filter_rules[cmd], entry)
 	    if (! lka_filter_execute(rule, reqid, cmd, param))
 		    return;
-
 	lka_filter_proceed(reqid, cmd, param);
 }
 
@@ -70,6 +69,24 @@ lka_filter_reject(uint64_t reqid, int cmd, const char *message)
 	m_add_int(p_pony, FILTER_REJECT);
 	m_add_string(p_pony, message);
 	m_close(p_pony);
+}
+
+static int
+lka_filter_execute_connected(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
+{
+	if (rule->u.connected.table)
+		if (table_lookup(rule->u.helo.table, NULL, param, K_NETADDR, NULL) > 0)
+			goto reject;
+
+	if (rule->u.connected.regex)
+		if (table_lookup(rule->u.helo.regex, NULL, param, K_REGEX, NULL) > 0)
+			goto reject;
+
+	return 1;
+
+reject:
+	lka_filter_reject(reqid, cmd, rule->reject);
+	return 0;
 }
 
 static int
@@ -197,6 +214,9 @@ static int
 lka_filter_execute(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
 {
 	switch (cmd) {
+	case FILTER_CONNECTED:
+		return lka_filter_execute_connected(rule, reqid, cmd, param);
+
 	case FILTER_HELO:
 		return lka_filter_execute_helo(rule, reqid, cmd, param);
 

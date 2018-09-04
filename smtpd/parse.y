@@ -174,7 +174,7 @@ typedef struct {
 
 %token	ACTION ALIAS ANY ARROW AUTH AUTH_OPTIONAL
 %token	BACKUP BOUNCE
-%token	CA CERT CIPHERS COMPRESSION
+%token	CA CERT CIPHERS COMPRESSION CONNECTED
 %token	CHECK_REGEX CHECK_TABLE
 %token	DATA DHE DOMAIN
 %token	EHLO ENCRYPTION ERROR EXPAND_ONLY
@@ -1059,6 +1059,22 @@ MATCH {
 }
 ;
 
+filter_phase_connected_options:
+CHECK_TABLE tables {
+	filter_rule->u.connected.table = $2;
+}
+|
+CHECK_REGEX tables {
+	filter_rule->u.connected.regex = $2;
+}
+;
+
+filter_phase_connected:
+CONNECTED {
+	filter_rule->phase = FILTER_CONNECTED;
+} filter_phase_connected_options
+;
+
 filter_phase_helo_options:
 CHECK_TABLE tables {
 	filter_rule->u.helo.table = $2;
@@ -1138,7 +1154,8 @@ NOOP {
 ;
 
 filter_phase:
-filter_phase_helo
+filter_phase_connected
+| filter_phase_helo
 | filter_phase_ehlo
 | filter_phase_mail_from
 | filter_phase_rcpt_to
@@ -1714,6 +1731,7 @@ lookup(char *s)
 		{ "check-table",       	CHECK_TABLE },
 		{ "ciphers",		CIPHERS },
 		{ "compression",	COMPRESSION },
+		{ "connected",		CONNECTED },
 		{ "data",		DATA },
 		{ "dhe",		DHE },
 		{ "domain",		DOMAIN },

@@ -137,6 +137,7 @@ struct smtp_session {
 	int			 flags;
 	enum smtp_state		 state;
 
+	uint8_t			 banner_ok;
 	char			 helo[LINE_MAX];
 	char			 cmd[LINE_MAX];
 	char			 username[SMTPD_MAXMAILADDRSIZE];
@@ -199,6 +200,7 @@ static int  smtp_check_mail_from(struct smtp_session *);
 static int  smtp_check_rcpt_to(struct smtp_session *);
 static int  smtp_check_data(struct smtp_session *);
 
+static void smtp_filter_connected(struct smtp_session *);
 static void smtp_filter_rset(struct smtp_session *);
 static void smtp_filter_helo(struct smtp_session *, const char *);
 static void smtp_filter_ehlo(struct smtp_session *, const char *);
@@ -210,6 +212,7 @@ static void smtp_filter_data(struct smtp_session *);
 static void smtp_filter_noop(struct smtp_session *);
 static void smtp_filter_quit(struct smtp_session *);
 
+static void smtp_proceed_connected(struct smtp_session *);
 static void smtp_proceed_rset(struct smtp_session *, const char *);
 static void smtp_proceed_helo(struct smtp_session *, const char *);
 static void smtp_proceed_ehlo(struct smtp_session *, const char *);
@@ -226,22 +229,23 @@ static void smtp_proceed_quit(struct smtp_session *, const char *);
 
 static struct {
 	int code;
+	int filter_code;
 	const char *cmd;
 	void (*cb)(struct smtp_session *, const char *);
 } commands[] = {
-	{ CMD_HELO,		"HELO",		smtp_proceed_helo },
-	{ CMD_EHLO,		"EHLO",		smtp_proceed_ehlo },
-	{ CMD_STARTTLS,		"STARTTLS",	smtp_proceed_starttls },
-	{ CMD_AUTH,		"AUTH",		smtp_proceed_auth },
-	{ CMD_MAIL_FROM,	"MAIL FROM",	smtp_proceed_mail_from },
-	{ CMD_RCPT_TO,		"RCPT TO",	smtp_proceed_rcpt_to },
-	{ CMD_DATA,		"DATA",		smtp_proceed_data },
-	{ CMD_RSET,		"RSET",		smtp_proceed_rset },
-	{ CMD_QUIT,		"QUIT",		smtp_proceed_quit },
-	{ CMD_HELP,		"HELP",		smtp_proceed_help },
-	{ CMD_WIZ,		"WIZ",		smtp_proceed_wiz },
-	{ CMD_NOOP,		"NOOP",		smtp_proceed_noop },
-	{ -1, NULL },
+	{ CMD_HELO,		FILTER_HELO,		"HELO",		smtp_proceed_helo },
+	{ CMD_EHLO,		FILTER_EHLO,		"EHLO",		smtp_proceed_ehlo },
+	{ CMD_STARTTLS,		FILTER_STARTTLS,	"STARTTLS",	smtp_proceed_starttls },
+	{ CMD_AUTH,		FILTER_AUTH,		"AUTH",		smtp_proceed_auth },
+	{ CMD_MAIL_FROM,	FILTER_MAIL_FROM,	"MAIL FROM",	smtp_proceed_mail_from },
+	{ CMD_RCPT_TO,		FILTER_RCPT_TO,		"RCPT TO",	smtp_proceed_rcpt_to },
+	{ CMD_DATA,		FILTER_DATA,		"DATA",		smtp_proceed_data },
+	{ CMD_RSET,		FILTER_RSET,		"RSET",		smtp_proceed_rset },
+	{ CMD_QUIT,		FILTER_QUIT,		"QUIT",		smtp_proceed_quit },
+	{ CMD_NOOP,		FILTER_NOOP,		"NOOP",		smtp_proceed_noop },
+	{ CMD_HELP,		0,			"HELP",		smtp_proceed_help },
+	{ CMD_WIZ,		0,			"WIZ",		smtp_proceed_wiz },
+	{ -1,			0,			NULL,		NULL },
 };
 
 static struct tree wait_lka_helo;
@@ -623,6 +627,7 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 	int				 filter_phase;
 	int				 filter_response;
 	const char			*filter_param;
+	uint8_t				 i;
 
 	switch (imsg->hdr.type) {
 
@@ -899,8 +904,17 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 
 		if (filter_response == FILTER_REJECT)
 			smtp_reply(s, "%s", filter_param);
-		else if (filter_response == FILTER_PROCEED)
-			commands[filter_phase].cb(s, filter_param);
+		else if (filter_response == FILTER_PROCEED) {
+			if (filter_phase == FILTER_CONNECTED) {
+				smtp_proceed_connected(s);
+				return;
+			}
+			for (i = 0; i < nitems(commands); ++i)
+				if (commands[i].filter_code == filter_phase) {
+					commands[i].cb(s, filter_param);
+					break;
+				}
+		}
 
 		return;
 	}
@@ -1214,6 +1228,13 @@ smtp_check_rset(struct smtp_session *s)
 static int
 smtp_check_helo(struct smtp_session *s, const char *args)
 {
+	if (!s->banner_ok) {
+		smtp_reply(s, "503 %s %s: Command not allowed at this point.",
+		    esc_code(ESC_STATUS_PERMFAIL, ESC_INVALID_COMMAND),
+		    esc_description(ESC_INVALID_COMMAND));
+		return 0;
+	}
+
 	if (s->helo[0]) {
 		smtp_reply(s, "503 %s %s: Already identified",
 		    esc_code(ESC_STATUS_PERMFAIL, ESC_INVALID_COMMAND),
@@ -1241,6 +1262,13 @@ smtp_check_helo(struct smtp_session *s, const char *args)
 static int
 smtp_check_ehlo(struct smtp_session *s, const char *args)
 {
+	if (!s->banner_ok) {
+		smtp_reply(s, "503 %s %s: Command not allowed at this point.",
+		    esc_code(ESC_STATUS_PERMFAIL, ESC_INVALID_COMMAND),
+		    esc_description(ESC_INVALID_COMMAND));
+		return 0;
+	}
+
 	if (s->helo[0]) {
 		smtp_reply(s, "503 %s %s: Already identified",
 		    esc_code(ESC_STATUS_PERMFAIL, ESC_INVALID_COMMAND),
@@ -1780,13 +1808,27 @@ smtp_connected(struct smtp_session *s)
 		return;
 	}
 
+	smtp_filter_connected(s);
+}
+
+static void
+smtp_filter_connected(struct smtp_session *s)
+{
+	smtp_query_filters(s, FILTER_CONNECTED, ss_to_text(&s->ss));
+}
+
+static void
+smtp_proceed_connected(struct smtp_session *s)
+{
 	smtp_send_banner(s);
 }
+
 
 static void
 smtp_send_banner(struct smtp_session *s)
 {
 	smtp_reply(s, "220 %s ESMTP %s", s->smtpname, SMTPD_NAME);
+	s->banner_ok = 1;
 }
 
 void
