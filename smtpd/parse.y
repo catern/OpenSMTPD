@@ -1062,15 +1062,23 @@ MATCH {
 }
 ;
 
-filter_phase_connected_options:
-CHECK_TABLE tables {
-	filter_rule->u.connected.table = $2;
-}
-|
-CHECK_REGEX tables {
-	filter_rule->u.connected.regex = $2;
+filter_phase_check_table:
+negation CHECK_TABLE tables {
+	filter_rule->not_table = $1;
+	filter_rule->table = $3;
 }
 ;
+
+filter_phase_check_regex:
+negation CHECK_REGEX tables {
+	filter_rule->not_regex = $1;
+	filter_rule->regex = $3;
+}
+;
+
+filter_phase_connected_options:
+filter_phase_check_table | filter_phase_check_regex;
+
 
 filter_phase_connected:
 CONNECTED {
@@ -1079,14 +1087,7 @@ CONNECTED {
 ;
 
 filter_phase_helo_options:
-CHECK_TABLE tables {
-	filter_rule->u.helo.table = $2;
-}
-|
-CHECK_REGEX tables {
-	filter_rule->u.helo.regex = $2;
-}
-;
+filter_phase_check_table | filter_phase_check_regex;
 
 filter_phase_helo:
 HELO {
@@ -1101,14 +1102,7 @@ EHLO {
 ;
 
 filter_phase_mail_from_options:
-CHECK_TABLE tables {
-	filter_rule->u.mail_from.table = $2;
-}
-|
-CHECK_REGEX tables {
-	filter_rule->u.mail_from.regex = $2;
-}
-;
+filter_phase_check_table | filter_phase_check_regex;
 
 filter_phase_mail_from:
 MAIL_FROM {
@@ -1117,14 +1111,7 @@ MAIL_FROM {
 ;
 
 filter_phase_rcpt_to_options:
-CHECK_TABLE tables {
-	filter_rule->u.rcpt_to.table = $2;
-}
-|
-CHECK_REGEX tables {
-	filter_rule->u.rcpt_to.regex = $2;
-}
-;
+filter_phase_check_table | filter_phase_check_regex;
 
 filter_phase_rcpt_to:
 RCPT_TO {

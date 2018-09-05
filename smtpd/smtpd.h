@@ -1003,28 +1003,11 @@ struct filter_rule {
 	enum filter_phase		phase;
 	char			       *reject;
 
-	union {
-		struct connected {
-			struct table	*table;
-			struct table	*regex;
-		} connected;
-		struct helo {
-			struct table	*table;
-			struct table	*regex;
-		} helo;
-		struct ehlo {
-			struct table	*table;
-			struct table	*regex;
-		} ehlo;
-		struct mail_from {
-			struct table	*table;
-			struct table	*regex;
-		} mail_from;
-		struct rcpt_to {
-			struct table	*table;
-			struct table	*regex;
-		} rcpt_to;
-	} u;
+	int8_t				not_table;
+	struct table		       *table;
+
+	int8_t				not_regex;
+	struct table		       *regex;
 };
 
 enum filter_status {

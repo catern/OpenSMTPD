@@ -72,15 +72,37 @@ lka_filter_reject(uint64_t reqid, int cmd, const char *message)
 }
 
 static int
+lka_filter_check_table(struct filter_rule *rule, enum table_service kind, const char *key)
+{
+	int	ret = 0;
+
+	if (rule->table) {
+		if (table_lookup(rule->table, NULL, key, kind, NULL) > 0)
+			ret = 1;
+		ret = rule->not_table < 0 ? !ret : ret;
+	}
+	return ret;
+}
+
+static int
+lka_filter_check_regex(struct filter_rule *rule, const char *key)
+{
+	int	ret = 0;
+
+	if (rule->regex) {
+		if (table_lookup(rule->regex, NULL, key, K_REGEX, NULL) > 0)
+			ret = 1;
+		ret = rule->not_regex < 0 ? !ret : ret;
+	}
+	return ret;
+}
+
+static int
 lka_filter_execute_connected(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
 {
-	if (rule->u.connected.table)
-		if (table_lookup(rule->u.helo.table, NULL, param, K_NETADDR, NULL) > 0)
-			goto reject;
-
-	if (rule->u.connected.regex)
-		if (table_lookup(rule->u.helo.regex, NULL, param, K_REGEX, NULL) > 0)
-			goto reject;
+	if (lka_filter_check_table(rule, K_NETADDR, param) ||
+	    lka_filter_check_regex(rule, param))
+		goto reject;
 
 	return 1;
 
@@ -92,13 +114,9 @@ reject:
 static int
 lka_filter_execute_helo(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
 {
-	if (rule->u.helo.table)
-		if (table_lookup(rule->u.helo.table, NULL, param, K_DOMAIN, NULL) > 0)
-			goto reject;
-
-	if (rule->u.helo.regex)
-		if (table_lookup(rule->u.helo.regex, NULL, param, K_REGEX, NULL) > 0)
-			goto reject;
+	if (lka_filter_check_table(rule, K_DOMAIN, param) ||
+	    lka_filter_check_regex(rule, param))
+		goto reject;
 
 	return 1;
 
@@ -110,13 +128,9 @@ reject:
 static int
 lka_filter_execute_ehlo(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
 {
-	if (rule->u.ehlo.table)
-		if (table_lookup(rule->u.ehlo.table, NULL, param, K_DOMAIN, NULL) > 0)
-			goto reject;
-
-	if (rule->u.helo.regex)
-		if (table_lookup(rule->u.ehlo.regex, NULL, param, K_REGEX, NULL) > 0)
-			goto reject;
+	if (lka_filter_check_table(rule, K_DOMAIN, param) ||
+	    lka_filter_check_regex(rule, param))
+		goto reject;
 
 	return 1;
 
@@ -146,13 +160,9 @@ lka_filter_execute_mail_from(struct filter_rule *rule, uint64_t reqid, int cmd, 
 	buffer[strcspn(buffer, ">")] = '\0';
 	param = buffer;
 
-	if (rule->u.mail_from.table)
-		if (table_lookup(rule->u.mail_from.table, NULL, param, K_MAILADDR, NULL) > 0)
-			goto reject;
-
-	if (rule->u.helo.regex)
-		if (table_lookup(rule->u.mail_from.regex, NULL, param, K_REGEX, NULL) > 0)
-			goto reject;
+	if (lka_filter_check_table(rule, K_MAILADDR, param) ||
+	    lka_filter_check_regex(rule, param))
+		goto reject;
 
 	return 1;
 
@@ -170,13 +180,9 @@ lka_filter_execute_rcpt_to(struct filter_rule *rule, uint64_t reqid, int cmd, co
 	buffer[strcspn(buffer, ">")] = '\0';
 	param = buffer;
 
-	if (rule->u.rcpt_to.table)
-		if (table_lookup(rule->u.rcpt_to.table, NULL, param, K_DOMAIN, NULL) > 0)
-			goto reject;
-
-	if (rule->u.helo.regex)
-		if (table_lookup(rule->u.rcpt_to.regex, NULL, param, K_REGEX, NULL) > 0)
-			goto reject;
+	if (lka_filter_check_table(rule, K_MAILADDR, param) ||
+	    lka_filter_check_regex(rule, param))
+		goto reject;
 
 	return 1;
 
