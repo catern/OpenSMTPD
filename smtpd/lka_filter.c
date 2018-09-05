@@ -33,46 +33,93 @@
 #include "smtpd.h"
 #include "log.h"
 
-static void	lka_filter_proceed(uint64_t reqid, int cmd, const char *param);
-static void	lka_filter_reject(uint64_t reqid, int cmd, const char *message);
-static int	lka_filter_execute(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param);
+static void	filter_proceed(uint64_t, enum filter_phase, const char *);
+static void	filter_reject(uint64_t, enum filter_phase, const char *);
+static void	filter_disconnect(uint64_t, enum filter_phase, const char *);
 
+static int	filter_exec_notimpl(uint64_t, struct filter_rule *, const char *);
+static int	filter_exec_connected(uint64_t, struct filter_rule *, const char *);
+static int	filter_exec_helo(uint64_t, struct filter_rule *, const char *);
+static int	filter_exec_mail_from(uint64_t, struct filter_rule *, const char *);
+static int	filter_exec_rcpt_to(uint64_t, struct filter_rule *, const char *);
+
+static struct filter_exec {
+	enum filter_phase	phase;
+	int		       (*func)(uint64_t, struct filter_rule *, const char *);
+} filter_execs[] = {
+	{ FILTER_AUTH,     	filter_exec_notimpl },
+	{ FILTER_CONNECTED,	filter_exec_connected },
+	{ FILTER_DATA,    	filter_exec_notimpl },
+	{ FILTER_EHLO,		filter_exec_helo },
+	{ FILTER_HELO,		filter_exec_helo },
+	{ FILTER_STARTTLS,     	filter_exec_notimpl },
+	{ FILTER_MAIL_FROM,    	filter_exec_mail_from },
+	{ FILTER_NOOP,    	filter_exec_notimpl },
+	{ FILTER_QUIT,    	filter_exec_notimpl },
+	{ FILTER_RCPT_TO,    	filter_exec_rcpt_to },
+	{ FILTER_RSET,    	filter_exec_notimpl },
+};
 
 void
-lka_filter(uint64_t reqid, int cmd, const char *param)
+lka_filter(uint64_t reqid, enum filter_phase phase, const char *param)
 {
 	struct filter_rule	*rule;
+	uint8_t			i;
 
-	TAILQ_FOREACH(rule, &env->sc_filter_rules[cmd], entry)
-	    if (! lka_filter_execute(rule, reqid, cmd, param))
+	for (i = 0; i < nitems(filter_execs); ++i)
+		if (phase == filter_execs[i].phase)
+			break;
+	if (i == nitems(filter_execs))
+		goto proceed;
+
+	TAILQ_FOREACH(rule, &env->sc_filter_rules[phase], entry)
+	    if (! filter_execs[i].func(reqid, rule, param)) {
+		    if (rule->disconnect)
+			    filter_disconnect(reqid, phase, rule->disconnect);
+		    else
+			    filter_reject(reqid, phase, rule->reject);
 		    return;
-	lka_filter_proceed(reqid, cmd, param);
+	    }
+
+proceed:
+	filter_proceed(reqid, phase, param);
 }
 
 static void
-lka_filter_proceed(uint64_t reqid, int cmd, const char *param)
+filter_proceed(uint64_t reqid, enum filter_phase phase, const char *param)
 {
 	m_create(p_pony, IMSG_SMTP_FILTER, 0, 0, -1);
 	m_add_id(p_pony, reqid);
-	m_add_int(p_pony, cmd);
+	m_add_int(p_pony, phase);
 	m_add_int(p_pony, FILTER_PROCEED);
 	m_add_string(p_pony, param);
 	m_close(p_pony);
 }
 
 static void
-lka_filter_reject(uint64_t reqid, int cmd, const char *message)
+filter_reject(uint64_t reqid, enum filter_phase phase, const char *message)
 {
 	m_create(p_pony, IMSG_SMTP_FILTER, 0, 0, -1);
 	m_add_id(p_pony, reqid);
-	m_add_int(p_pony, cmd);
+	m_add_int(p_pony, phase);
 	m_add_int(p_pony, FILTER_REJECT);
 	m_add_string(p_pony, message);
 	m_close(p_pony);
 }
 
+static void
+filter_disconnect(uint64_t reqid, enum filter_phase phase, const char *message)
+{
+	m_create(p_pony, IMSG_SMTP_FILTER, 0, 0, -1);
+	m_add_id(p_pony, reqid);
+	m_add_int(p_pony, phase);
+	m_add_int(p_pony, FILTER_DISCONNECT);
+	m_add_string(p_pony, message);
+	m_close(p_pony);
+}
+
 static int
-lka_filter_check_table(struct filter_rule *rule, enum table_service kind, const char *key)
+filter_check_table(struct filter_rule *rule, enum table_service kind, const char *key)
 {
 	int	ret = 0;
 
@@ -85,7 +132,7 @@ lka_filter_check_table(struct filter_rule *rule, enum table_service kind, const 
 }
 
 static int
-lka_filter_check_regex(struct filter_rule *rule, const char *key)
+filter_check_regex(struct filter_rule *rule, const char *key)
 {
 	int	ret = 0;
 
@@ -98,61 +145,31 @@ lka_filter_check_regex(struct filter_rule *rule, const char *key)
 }
 
 static int
-lka_filter_execute_connected(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
-{
-	if (lka_filter_check_table(rule, K_NETADDR, param) ||
-	    lka_filter_check_regex(rule, param))
-		goto reject;
-
-	return 1;
-
-reject:
-	lka_filter_reject(reqid, cmd, rule->reject);
-	return 0;
-}
-
-static int
-lka_filter_execute_helo(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
-{
-	if (lka_filter_check_table(rule, K_DOMAIN, param) ||
-	    lka_filter_check_regex(rule, param))
-		goto reject;
-
-	return 1;
-
-reject:
-	lka_filter_reject(reqid, cmd, rule->reject);
-	return 0;
-}
-
-static int
-lka_filter_execute_ehlo(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
-{
-	if (lka_filter_check_table(rule, K_DOMAIN, param) ||
-	    lka_filter_check_regex(rule, param))
-		goto reject;
-
-	return 1;
-
-reject:
-	lka_filter_reject(reqid, cmd, rule->reject);
-	return 0;
-}
-
-static int
-lka_filter_execute_starttls(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
+filter_exec_notimpl(uint64_t reqid, struct filter_rule *rule, const char *param)
 {
 	return 1;
 }
 
 static int
-lka_filter_execute_auth(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
+filter_exec_connected(uint64_t reqid, struct filter_rule *rule, const char *param)
 {
+	if (filter_check_table(rule, K_NETADDR, param) ||
+	    filter_check_regex(rule, param))
+		return 0;
 	return 1;
 }
 
 static int
-lka_filter_execute_mail_from(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
+filter_exec_helo(uint64_t reqid, struct filter_rule *rule, const char *param)
+{
+	if (filter_check_table(rule, K_DOMAIN, param) ||
+	    filter_check_regex(rule, param))
+		return 0;
+	return 1;
+}
+
+static int
+filter_exec_mail_from(uint64_t reqid, struct filter_rule *rule, const char *param)
 {
 	char	buffer[SMTPD_MAXMAILADDRSIZE];
 
@@ -160,19 +177,14 @@ lka_filter_execute_mail_from(struct filter_rule *rule, uint64_t reqid, int cmd, 
 	buffer[strcspn(buffer, ">")] = '\0';
 	param = buffer;
 
-	if (lka_filter_check_table(rule, K_MAILADDR, param) ||
-	    lka_filter_check_regex(rule, param))
-		goto reject;
-
+	if (filter_check_table(rule, K_MAILADDR, param) ||
+	    filter_check_regex(rule, param))
+		return 0;
 	return 1;
-
-reject:
-	lka_filter_reject(reqid, cmd, rule->reject);
-	return 0;
 }
 
 static int
-lka_filter_execute_rcpt_to(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
+filter_exec_rcpt_to(uint64_t reqid, struct filter_rule *rule, const char *param)
 {
 	char	buffer[SMTPD_MAXMAILADDRSIZE];
 
@@ -180,80 +192,8 @@ lka_filter_execute_rcpt_to(struct filter_rule *rule, uint64_t reqid, int cmd, co
 	buffer[strcspn(buffer, ">")] = '\0';
 	param = buffer;
 
-	if (lka_filter_check_table(rule, K_MAILADDR, param) ||
-	    lka_filter_check_regex(rule, param))
-		goto reject;
-
+	if (filter_check_table(rule, K_MAILADDR, param) ||
+	    filter_check_regex(rule, param))
+		return 0;
 	return 1;
-
-reject:
-	lka_filter_reject(reqid, cmd, rule->reject);
-	return 0;
-}
-
-static int
-lka_filter_execute_data(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
-{
-	return 1;
-}
-
-static int
-lka_filter_execute_quit(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
-{
-	return 1;
-}
-
-static int
-lka_filter_execute_noop(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
-{
-	return 1;
-}
-
-static int
-lka_filter_execute_rset(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
-{
-	return 1;
-}
-
-
-static int
-lka_filter_execute(struct filter_rule *rule, uint64_t reqid, int cmd, const char *param)
-{
-	switch (cmd) {
-	case FILTER_CONNECTED:
-		return lka_filter_execute_connected(rule, reqid, cmd, param);
-
-	case FILTER_HELO:
-		return lka_filter_execute_helo(rule, reqid, cmd, param);
-
-	case FILTER_EHLO:
-		return lka_filter_execute_ehlo(rule, reqid, cmd, param);
-
-	case FILTER_STARTTLS:
-		return lka_filter_execute_starttls(rule, reqid, cmd, param);
-
-	case FILTER_AUTH:
-		return lka_filter_execute_auth(rule, reqid, cmd, param);
-
-	case FILTER_MAIL_FROM:
-		return lka_filter_execute_mail_from(rule, reqid, cmd, param);
-
-	case FILTER_RCPT_TO:
-		return lka_filter_execute_rcpt_to(rule, reqid, cmd, param);
-
-	case FILTER_DATA:
-		return lka_filter_execute_data(rule, reqid, cmd, param);
-
-	case FILTER_QUIT:
-		return lka_filter_execute_quit(rule, reqid, cmd, param);
-
-	case FILTER_NOOP:
-		return lka_filter_execute_noop(rule, reqid, cmd, param);
-
-	case FILTER_RSET:
-		return lka_filter_execute_rset(rule, reqid, cmd, param);
-
-	default:
-		return 1;
-	}
 }

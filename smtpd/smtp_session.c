@@ -904,6 +904,10 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 
 		if (filter_response == FILTER_REJECT)
 			smtp_reply(s, "%s", filter_param);
+		else if (filter_response == FILTER_DISCONNECT) {
+			smtp_reply(s, "%s", filter_param);
+			smtp_enter_state(s, STATE_QUIT);
+		}
 		else if (filter_response == FILTER_PROCEED) {
 			if (filter_phase == FILTER_CONNECTED) {
 				smtp_proceed_connected(s);

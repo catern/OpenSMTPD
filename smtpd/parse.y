@@ -174,9 +174,9 @@ typedef struct {
 
 %token	ACTION ALIAS ANY ARROW AUTH AUTH_OPTIONAL
 %token	BACKUP BOUNCE
-%token	CA CERT CIPHERS COMPRESSION CONNECTED
+%token	CA CERT CIPHERS COMPRESSION CONNECT
 %token	CHECK_REGEX CHECK_TABLE
-%token	DATA DHE DOMAIN
+%token	DATA DHE DISCONNECT DOMAIN
 %token	EHLO ENCRYPTION ERROR EXPAND_ONLY EXPERIMENTAL
 %token	FILTER FOR FORWARD_ONLY FROM
 %token	HELO HELO_SRC HOST HOSTNAME HOSTNAMES
@@ -1064,26 +1064,26 @@ MATCH {
 
 filter_phase_check_table:
 negation CHECK_TABLE tables {
-	filter_rule->not_table = $1;
+	filter_rule->not_table =  $1 ? -1 : 1;
 	filter_rule->table = $3;
 }
 ;
 
 filter_phase_check_regex:
 negation CHECK_REGEX tables {
-	filter_rule->not_regex = $1;
+	filter_rule->not_regex = $1 ? -1 : 1;
 	filter_rule->regex = $3;
 }
 ;
 
-filter_phase_connected_options:
+filter_phase_connect_options:
 filter_phase_check_table | filter_phase_check_regex;
 
 
-filter_phase_connected:
-CONNECTED {
+filter_phase_connect:
+CONNECT {
 	filter_rule->phase = FILTER_CONNECTED;
-} filter_phase_connected_options
+} filter_phase_connect_options
 ;
 
 filter_phase_helo_options:
@@ -1144,7 +1144,7 @@ NOOP {
 ;
 
 filter_phase:
-filter_phase_connected
+filter_phase_connect
 | filter_phase_helo
 | filter_phase_ehlo
 | filter_phase_mail_from
@@ -1158,6 +1158,9 @@ filter_phase_connected
 filter_action:
 REJECT STRING {
 	filter_rule->reject = $2;
+}
+| DISCONNECT STRING {
+	filter_rule->disconnect = $2;
 }
 ;
 
@@ -1721,9 +1724,10 @@ lookup(char *s)
 		{ "check-table",       	CHECK_TABLE },
 		{ "ciphers",		CIPHERS },
 		{ "compression",	COMPRESSION },
-		{ "connected",		CONNECTED },
+		{ "connect",		CONNECT },
 		{ "data",		DATA },
 		{ "dhe",		DHE },
+		{ "disconnect",		DISCONNECT },
 		{ "domain",		DOMAIN },
 		{ "ehlo",		EHLO },
 		{ "encryption",		ENCRYPTION },

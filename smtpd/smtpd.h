@@ -1002,6 +1002,7 @@ struct filter_rule {
 
 	enum filter_phase		phase;
 	char			       *reject;
+	char			       *disconnect;
 
 	int8_t				not_table;
 	struct table		       *table;
@@ -1013,6 +1014,7 @@ struct filter_rule {
 enum filter_status {
 	FILTER_PROCEED,
 	FILTER_REJECT,
+	FILTER_DISCONNECT,
 };
 
 enum ca_resp_status {
@@ -1259,7 +1261,7 @@ int lka(void);
 
 
 /* lka_filter.c */
-void lka_filter(uint64_t, int, const char *);
+void lka_filter(uint64_t, enum filter_phase, const char *);
 
 
 /* lka_session.c */
