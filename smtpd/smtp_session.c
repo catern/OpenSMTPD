@@ -892,13 +892,21 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 
 		s = tree_xpop(&wait_filters, reqid);
 
-		if (filter_response == FILTER_REJECT)
+		switch (filter_response) {
+		case FILTER_REJECT:
+		case FILTER_DISCONNECT:
+			if (!valid_smtp_response(filter_param) ||
+			    (filter_param[0] != '4' && filter_param[0] != '5'))
+				filter_param = "421 Internal server error";
+			if (!strncmp(filter_param, "421", 3))
+				filter_response = FILTER_DISCONNECT;
+
 			smtp_reply(s, "%s", filter_param);
-		else if (filter_response == FILTER_DISCONNECT) {
-			smtp_reply(s, "%s", filter_param);
-			smtp_enter_state(s, STATE_QUIT);
-		}
-		else if (filter_response == FILTER_PROCEED) {
+
+			if (filter_response == FILTER_DISCONNECT)
+				smtp_enter_state(s, STATE_QUIT);
+			break;
+		case FILTER_PROCEED:
 			if (filter_phase == FILTER_CONNECTED) {
 				smtp_proceed_connected(s);
 				return;
@@ -908,8 +916,8 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 					commands[i].cb(s, filter_param);
 					break;
 				}
+			break;
 		}
-
 		return;
 	}
 
