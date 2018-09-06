@@ -340,6 +340,8 @@ enum filter_phase {
 	FILTER_RSET,
 	FILTER_QUIT,
 	FILTER_NOOP,
+	FILTER_HELP,
+	FILTER_WIZ,
 	FILTER_PHASES_COUNT	/* must be last */
 };
 

@@ -200,17 +200,7 @@ static int  smtp_check_mail_from(struct smtp_session *);
 static int  smtp_check_rcpt_to(struct smtp_session *);
 static int  smtp_check_data(struct smtp_session *);
 
-static void smtp_filter_connected(struct smtp_session *);
-static void smtp_filter_rset(struct smtp_session *);
-static void smtp_filter_helo(struct smtp_session *, const char *);
-static void smtp_filter_ehlo(struct smtp_session *, const char *);
-static void smtp_filter_auth(struct smtp_session *, const char *);
-static void smtp_filter_starttls(struct smtp_session *);
-static void smtp_filter_mail_from(struct smtp_session *, const char *);
-static void smtp_filter_rcpt_to(struct smtp_session *, const char *);
-static void smtp_filter_data(struct smtp_session *);
-static void smtp_filter_noop(struct smtp_session *);
-static void smtp_filter_quit(struct smtp_session *);
+static void smtp_filter_phase(enum filter_phase, struct smtp_session *, const char *);
 
 static void smtp_proceed_connected(struct smtp_session *);
 static void smtp_proceed_rset(struct smtp_session *, const char *);
@@ -229,7 +219,7 @@ static void smtp_proceed_quit(struct smtp_session *, const char *);
 
 static struct {
 	int code;
-	int filter_code;
+	enum filter_phase filter_phase;
 	const char *cmd;
 	void (*cb)(struct smtp_session *, const char *);
 } commands[] = {
@@ -243,8 +233,8 @@ static struct {
 	{ CMD_RSET,		FILTER_RSET,		"RSET",		smtp_proceed_rset },
 	{ CMD_QUIT,		FILTER_QUIT,		"QUIT",		smtp_proceed_quit },
 	{ CMD_NOOP,		FILTER_NOOP,		"NOOP",		smtp_proceed_noop },
-	{ CMD_HELP,		0,			"HELP",		smtp_proceed_help },
-	{ CMD_WIZ,		0,			"WIZ",		smtp_proceed_wiz },
+	{ CMD_HELP,		FILTER_HELP,   		"HELP",		smtp_proceed_help },
+	{ CMD_WIZ,		FILTER_WIZ,    		"WIZ",		smtp_proceed_wiz },
 	{ -1,			0,			NULL,		NULL },
 };
 
@@ -624,7 +614,7 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 	uint32_t			 msgid;
 	int				 status, success;
 	void				*ssl_ctx;
-	int				 filter_phase;
+	enum filter_phase		 filter_phase;
 	int				 filter_response;
 	const char			*filter_param;
 	uint8_t				 i;
@@ -895,7 +885,7 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 	case IMSG_SMTP_FILTER:
 		m_msg(&m, imsg);
 		m_get_id(&m, &reqid);
-		m_get_int(&m, &filter_phase);
+		m_get_int(&m, (int *)&filter_phase);
 		m_get_int(&m, &filter_response);
 		m_get_string(&m, &filter_param);
 		m_end(&m);
@@ -914,7 +904,7 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 				return;
 			}
 			for (i = 0; i < nitems(commands); ++i)
-				if (commands[i].filter_code == filter_phase) {
+				if (commands[i].filter_phase == filter_phase) {
 					commands[i].cb(s, filter_param);
 					break;
 				}
@@ -1138,13 +1128,13 @@ smtp_command(struct smtp_session *s, char *line)
 	case CMD_HELO:
 		if (!smtp_check_helo(s, args))
 			break;
-		smtp_filter_helo(s, args);
+		smtp_filter_phase(FILTER_HELO, s, args);
 		break;
 
 	case CMD_EHLO:
 		if (!smtp_check_ehlo(s, args))
 			break;
-		smtp_filter_ehlo(s, args);
+		smtp_filter_phase(FILTER_EHLO, s, args);
 		break;
 
 
@@ -1154,19 +1144,19 @@ smtp_command(struct smtp_session *s, char *line)
 	case CMD_STARTTLS:
 		if (!smtp_check_starttls(s, args))
 			break;
-		smtp_filter_starttls(s);
+		smtp_filter_phase(FILTER_STARTTLS, s, NULL);
 		break;
 
 	case CMD_AUTH:
 		if (!smtp_check_auth(s, args))
 			break;
-		smtp_filter_auth(s, args);
+		smtp_filter_phase(FILTER_AUTH, s, NULL);
 		break;
 
 	case CMD_MAIL_FROM:
 		if (!smtp_check_mail_from(s))
 			break;
-		smtp_filter_mail_from(s, args);
+		smtp_filter_phase(FILTER_MAIL_FROM, s, args);
 		break;
 
 	/*
@@ -1175,30 +1165,30 @@ smtp_command(struct smtp_session *s, char *line)
 	case CMD_RCPT_TO:
 		if (!smtp_check_rcpt_to(s))
 			break;
-		smtp_filter_rcpt_to(s, args);
+		smtp_filter_phase(FILTER_RCPT_TO, s, args);
 		break;
 
 	case CMD_RSET:
 		if (!smtp_check_rset(s))
 			break;
-		smtp_filter_rset(s);
+		smtp_filter_phase(FILTER_RSET, s, NULL);
 		break;
 
 	case CMD_DATA:
 		if (!smtp_check_data(s))
 			break;
-		smtp_filter_data(s);
+		smtp_filter_phase(FILTER_DATA, s, NULL);
 		break;
 
 	/*
 	 * ANY
 	 */
 	case CMD_QUIT:
-		smtp_filter_quit(s);
+		smtp_filter_phase(FILTER_QUIT, s, NULL);
 		break;
 
 	case CMD_NOOP:
-		smtp_filter_noop(s);
+		smtp_filter_phase(FILTER_NOOP, s, NULL);
 		break;
 
 	case CMD_HELP:
@@ -1445,15 +1435,15 @@ smtp_check_data(struct smtp_session *s)
 }
 
 static void
-smtp_query_filters(struct smtp_session *s, int filter_phase, const char *args)
+smtp_query_filters(enum filter_phase phase, struct smtp_session *s, const char *args)
 {
 	uint8_t	i;
 
 	if (env->sc_smtp_experimental_filter) {
-		if (TAILQ_FIRST(&env->sc_filter_rules[filter_phase])) {
+		if (TAILQ_FIRST(&env->sc_filter_rules[phase])) {
 			m_create(p_lka, IMSG_SMTP_FILTER, 0, 0, -1);
 			m_add_id(p_lka, s->id);
-			m_add_int(p_lka, filter_phase);
+			m_add_int(p_lka, phase);
 			m_add_string(p_lka, args);
 			m_close(p_lka);
 			tree_xset(&wait_filters, s->id, s);
@@ -1461,73 +1451,19 @@ smtp_query_filters(struct smtp_session *s, int filter_phase, const char *args)
 		}
 	}
 
-	if (filter_phase == FILTER_CONNECTED) {
+	if (phase == FILTER_CONNECTED) {
 		smtp_proceed_connected(s);
 		return;
 	}
 	for (i = 0; i < nitems(commands); ++i)
-		if (commands[i].filter_code == filter_phase)
+		if (commands[i].filter_phase == phase)
 			commands[i].cb(s, args);
 }
 
 static void
-smtp_filter_rset(struct smtp_session *s)
+smtp_filter_phase(enum filter_phase phase, struct smtp_session *s, const char *param)
 {
-	smtp_query_filters(s, FILTER_RSET, "");
-}
-
-static void
-smtp_filter_helo(struct smtp_session *s, const char *args)
-{
-	smtp_query_filters(s, FILTER_HELO, args);
-}
-
-static void
-smtp_filter_ehlo(struct smtp_session *s, const char *args)
-{
-	smtp_query_filters(s, FILTER_EHLO, args);
-}
-
-static void
-smtp_filter_auth(struct smtp_session *s, const char *args)
-{
-	smtp_query_filters(s, FILTER_AUTH, args);
-}
-
-static void
-smtp_filter_starttls(struct smtp_session *s)
-{
-	smtp_query_filters(s, FILTER_STARTTLS, "");
-}
-
-static void
-smtp_filter_mail_from(struct smtp_session *s, const char *args)
-{
-	smtp_query_filters(s, FILTER_MAIL_FROM, args);
-}
-
-static void
-smtp_filter_rcpt_to(struct smtp_session *s, const char *args)
-{
-	smtp_query_filters(s, FILTER_RCPT_TO, args);
-}
-
-static void
-smtp_filter_data(struct smtp_session *s)
-{
-	smtp_query_filters(s, FILTER_DATA, "");
-}
-
-static void
-smtp_filter_quit(struct smtp_session *s)
-{
-	smtp_query_filters(s, FILTER_QUIT, "");
-}
-
-static void
-smtp_filter_noop(struct smtp_session *s)
-{
-	smtp_query_filters(s, FILTER_NOOP, "");
+	smtp_query_filters(phase, s, param ? param : "");
 }
 
 static void
@@ -1826,13 +1762,7 @@ smtp_connected(struct smtp_session *s)
 		return;
 	}
 
-	smtp_filter_connected(s);
-}
-
-static void
-smtp_filter_connected(struct smtp_session *s)
-{
-	smtp_query_filters(s, FILTER_CONNECTED, ss_to_text(&s->ss));
+	smtp_filter_phase(FILTER_CONNECTED, s, ss_to_text(&s->ss));
 }
 
 static void
