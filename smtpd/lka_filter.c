@@ -34,6 +34,7 @@
 #include "log.h"
 
 static void	filter_proceed(uint64_t, enum filter_phase, const char *);
+static void	filter_rewrite(uint64_t, enum filter_phase, const char *);
 static void	filter_reject(uint64_t, enum filter_phase, const char *);
 static void	filter_disconnect(uint64_t, enum filter_phase, const char *);
 
@@ -74,7 +75,9 @@ lka_filter(uint64_t reqid, enum filter_phase phase, const char *param)
 
 	TAILQ_FOREACH(rule, &env->sc_filter_rules[phase], entry)
 	    if (! filter_execs[i].func(reqid, rule, param)) {
-		    if (rule->disconnect)
+		    if (rule->rewrite)
+			    filter_rewrite(reqid, phase, rule->rewrite);
+		    else if (rule->disconnect)
 			    filter_disconnect(reqid, phase, rule->disconnect);
 		    else
 			    filter_reject(reqid, phase, rule->reject);
@@ -92,6 +95,17 @@ filter_proceed(uint64_t reqid, enum filter_phase phase, const char *param)
 	m_add_id(p_pony, reqid);
 	m_add_int(p_pony, phase);
 	m_add_int(p_pony, FILTER_PROCEED);
+	m_add_string(p_pony, param);
+	m_close(p_pony);
+}
+
+static void
+filter_rewrite(uint64_t reqid, enum filter_phase phase, const char *param)
+{
+	m_create(p_pony, IMSG_SMTP_FILTER, 0, 0, -1);
+	m_add_id(p_pony, reqid);
+	m_add_int(p_pony, phase);
+	m_add_int(p_pony, FILTER_REWRITE);
 	m_add_string(p_pony, param);
 	m_close(p_pony);
 }

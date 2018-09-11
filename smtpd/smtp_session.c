@@ -191,14 +191,15 @@ static void smtp_message_fd(struct smtp_tx *, int);
 static void smtp_message_end(struct smtp_tx *);
 static int  smtp_message_printf(struct smtp_tx *, const char *, ...);
 
-static int  smtp_check_rset(struct smtp_session *);
+static int  smtp_check_rset(struct smtp_session *, const char *);
 static int  smtp_check_helo(struct smtp_session *, const char *);
 static int  smtp_check_ehlo(struct smtp_session *, const char *);
 static int  smtp_check_auth(struct smtp_session *s, const char *);
 static int  smtp_check_starttls(struct smtp_session *, const char *);
-static int  smtp_check_mail_from(struct smtp_session *);
-static int  smtp_check_rcpt_to(struct smtp_session *);
-static int  smtp_check_data(struct smtp_session *);
+static int  smtp_check_mail_from(struct smtp_session *, const char *);
+static int  smtp_check_rcpt_to(struct smtp_session *, const char *);
+static int  smtp_check_data(struct smtp_session *, const char *);
+static int  smtp_check_noparam(struct smtp_session *, const char *);
 
 static void smtp_filter_phase(enum filter_phase, struct smtp_session *, const char *);
 
@@ -221,20 +222,21 @@ static struct {
 	int code;
 	enum filter_phase filter_phase;
 	const char *cmd;
-	void (*cb)(struct smtp_session *, const char *);
+	int (*check)(struct smtp_session *, const char *);
+	void (*proceed)(struct smtp_session *, const char *);
 } commands[] = {
-	{ CMD_HELO,		FILTER_HELO,		"HELO",		smtp_proceed_helo },
-	{ CMD_EHLO,		FILTER_EHLO,		"EHLO",		smtp_proceed_ehlo },
-	{ CMD_STARTTLS,		FILTER_STARTTLS,	"STARTTLS",	smtp_proceed_starttls },
-	{ CMD_AUTH,		FILTER_AUTH,		"AUTH",		smtp_proceed_auth },
-	{ CMD_MAIL_FROM,	FILTER_MAIL_FROM,	"MAIL FROM",	smtp_proceed_mail_from },
-	{ CMD_RCPT_TO,		FILTER_RCPT_TO,		"RCPT TO",	smtp_proceed_rcpt_to },
-	{ CMD_DATA,		FILTER_DATA,		"DATA",		smtp_proceed_data },
-	{ CMD_RSET,		FILTER_RSET,		"RSET",		smtp_proceed_rset },
-	{ CMD_QUIT,		FILTER_QUIT,		"QUIT",		smtp_proceed_quit },
-	{ CMD_NOOP,		FILTER_NOOP,		"NOOP",		smtp_proceed_noop },
-	{ CMD_HELP,		FILTER_HELP,   		"HELP",		smtp_proceed_help },
-	{ CMD_WIZ,		FILTER_WIZ,    		"WIZ",		smtp_proceed_wiz },
+	{ CMD_HELO,		FILTER_HELO,		"HELO",		smtp_check_helo,	smtp_proceed_helo },
+	{ CMD_EHLO,		FILTER_EHLO,		"EHLO",		smtp_check_ehlo,	smtp_proceed_ehlo },
+	{ CMD_STARTTLS,		FILTER_STARTTLS,	"STARTTLS",	smtp_check_starttls,	smtp_proceed_starttls },
+	{ CMD_AUTH,		FILTER_AUTH,		"AUTH",		smtp_check_auth,	smtp_proceed_auth },
+	{ CMD_MAIL_FROM,	FILTER_MAIL_FROM,	"MAIL FROM",	smtp_check_mail_from,	smtp_proceed_mail_from },
+	{ CMD_RCPT_TO,		FILTER_RCPT_TO,		"RCPT TO",	smtp_check_rcpt_to,	smtp_proceed_rcpt_to },
+	{ CMD_DATA,		FILTER_DATA,		"DATA",		smtp_check_data,	smtp_proceed_data },
+	{ CMD_RSET,		FILTER_RSET,		"RSET",		smtp_check_rset,	smtp_proceed_rset },
+	{ CMD_QUIT,		FILTER_QUIT,		"QUIT",		smtp_check_noparam,	smtp_proceed_quit },
+	{ CMD_NOOP,		FILTER_NOOP,		"NOOP",		smtp_check_noparam,	smtp_proceed_noop },
+	{ CMD_HELP,		FILTER_HELP,   		"HELP",		smtp_check_noparam,	smtp_proceed_help },
+	{ CMD_WIZ,		FILTER_WIZ,    		"WIZ",		smtp_check_noparam,    	smtp_proceed_wiz },
 	{ -1,			0,			NULL,		NULL },
 };
 
@@ -907,13 +909,17 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 				smtp_enter_state(s, STATE_QUIT);
 			break;
 		case FILTER_PROCEED:
+		case FILTER_REWRITE:
 			if (filter_phase == FILTER_CONNECTED) {
 				smtp_proceed_connected(s);
 				return;
 			}
 			for (i = 0; i < nitems(commands); ++i)
 				if (commands[i].filter_phase == filter_phase) {
-					commands[i].cb(s, filter_param);
+					if (filter_response == FILTER_REWRITE)
+						if (!commands[i].check(s, filter_param))
+							break;
+					commands[i].proceed(s, filter_param);
 					break;
 				}
 			break;
@@ -1162,7 +1168,7 @@ smtp_command(struct smtp_session *s, char *line)
 		break;
 
 	case CMD_MAIL_FROM:
-		if (!smtp_check_mail_from(s))
+		if (!smtp_check_mail_from(s, args))
 			break;
 		smtp_filter_phase(FILTER_MAIL_FROM, s, args);
 		break;
@@ -1171,19 +1177,19 @@ smtp_command(struct smtp_session *s, char *line)
 	 * TRANSACTION
 	 */
 	case CMD_RCPT_TO:
-		if (!smtp_check_rcpt_to(s))
+		if (!smtp_check_rcpt_to(s, args))
 			break;
 		smtp_filter_phase(FILTER_RCPT_TO, s, args);
 		break;
 
 	case CMD_RSET:
-		if (!smtp_check_rset(s))
+		if (!smtp_check_rset(s, args))
 			break;
 		smtp_filter_phase(FILTER_RSET, s, NULL);
 		break;
 
 	case CMD_DATA:
-		if (!smtp_check_data(s))
+		if (!smtp_check_data(s, args))
 			break;
 		smtp_filter_phase(FILTER_DATA, s, NULL);
 		break;
@@ -1216,7 +1222,7 @@ smtp_command(struct smtp_session *s, char *line)
 }
 
 static int
-smtp_check_rset(struct smtp_session *s)
+smtp_check_rset(struct smtp_session *s, const char *args)
 {
 	if (s->helo[0] == '\0') {
 		smtp_reply(s, "503 %s %s: Command not allowed at this point.",
@@ -1364,7 +1370,7 @@ smtp_check_starttls(struct smtp_session *s, const char *args)
 }
 
 static int
-smtp_check_mail_from(struct smtp_session *s)
+smtp_check_mail_from(struct smtp_session *s, const char *args)
 {
 	if (s->helo[0] == '\0' || s->tx) {
 		smtp_reply(s, "503 %s %s: Command not allowed at this point.",
@@ -1410,7 +1416,7 @@ smtp_check_mail_from(struct smtp_session *s)
 }
 
 static int
-smtp_check_rcpt_to(struct smtp_session *s)
+smtp_check_rcpt_to(struct smtp_session *s, const char *args)
 {
 	if (s->tx == NULL) {
 		smtp_reply(s, "503 %s %s: Command not allowed at this point.",
@@ -1423,7 +1429,7 @@ smtp_check_rcpt_to(struct smtp_session *s)
 }
 
 static int
-smtp_check_data(struct smtp_session *s)
+smtp_check_data(struct smtp_session *s, const char *args)
 {
 	if (s->tx == NULL) {
 		smtp_reply(s, "503 %s %s: Command not allowed at this point.",
@@ -1439,6 +1445,13 @@ smtp_check_data(struct smtp_session *s)
 		return 0;
 	}
 
+	return 1;
+}
+
+static int
+smtp_check_noparam(struct smtp_session *s, const char *args)
+{
+	log_debug("ARGS: %s", args);
 	return 1;
 }
 
@@ -1465,7 +1478,7 @@ smtp_query_filters(enum filter_phase phase, struct smtp_session *s, const char *
 	}
 	for (i = 0; i < nitems(commands); ++i)
 		if (commands[i].filter_phase == phase)
-			commands[i].cb(s, args);
+			commands[i].proceed(s, args);
 }
 
 static void

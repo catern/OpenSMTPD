@@ -89,6 +89,7 @@ config_default(void)
 	conf->sc_ssl_dict = calloc(1, sizeof(*conf->sc_ssl_dict));
 	conf->sc_limits_dict = calloc(1, sizeof(*conf->sc_limits_dict));
 	conf->sc_mda_wrappers = calloc(1, sizeof(*conf->sc_mda_wrappers));
+	conf->sc_smtp_filters_dict = calloc(1, sizeof(*conf->sc_smtp_filters_dict));
 	conf->sc_dispatcher_bounce = calloc(1, sizeof(*conf->sc_dispatcher_bounce));
 	limits = calloc(1, sizeof(*limits));
 
@@ -101,12 +102,14 @@ config_default(void)
 	    conf->sc_ssl_dict == NULL		||
 	    conf->sc_limits_dict == NULL        ||
 	    conf->sc_mda_wrappers == NULL	||
+	    conf->sc_smtp_filters_dict == NULL	||
 	    conf->sc_dispatcher_bounce == NULL	||
 	    limits == NULL)
 		goto error;
 
 	dict_init(conf->sc_dispatchers);
 	dict_init(conf->sc_mda_wrappers);
+	dict_init(conf->sc_smtp_filters_dict);
 	dict_init(conf->sc_ca_dict);
 	dict_init(conf->sc_pki_dict);
 	dict_init(conf->sc_ssl_dict);

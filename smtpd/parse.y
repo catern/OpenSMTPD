@@ -177,8 +177,9 @@ typedef struct {
 %token	CA CERT CIPHERS COMPRESSION CONNECT
 %token	CHECK_REGEX CHECK_TABLE
 %token	DATA DHE DISCONNECT DOMAIN
-%token	EHLO ENCRYPTION ERROR EXPAND_ONLY EXPERIMENTAL
+%token	EHLO ENABLE ENCRYPTION ERROR EXPAND_ONLY
 %token	FILTER FOR FORWARD_ONLY FROM
+%token	GROUP
 %token	HELO HELO_SRC HOST HOSTNAME HOSTNAMES
 %token	INCLUDE INET4 INET6
 %token	JUNK
@@ -189,7 +190,7 @@ typedef struct {
 %token	ON
 %token	PKI PORT
 %token	QUEUE QUIT
-%token	RCPT_TO RECIPIENT RECEIVEDAUTH RELAY REJECT RSET
+%token	RCPT_TO RECIPIENT RECEIVEDAUTH RELAY REJECT REWRITE RSET
 %token	SCHEDULER SENDER SENDERS SMTP SMTPS SOCKET SRC SUB_ADDR_DELIM
 %token	TABLE TAG TAGGED TLS TLS_REQUIRE TO TTL
 %token	USER USERBASE
@@ -465,8 +466,23 @@ SCHEDULER LIMIT limits_scheduler
 
 
 smtp:
-SMTP EXPERIMENTAL FILTER {
+SMTP FILTER ENABLE {
 	conf->sc_smtp_experimental_filter = 1;
+}
+| SMTP FILTER STRING STRING USER STRING GROUP STRING {
+	struct filter	*filter;
+
+	if (dict_get(conf->sc_smtp_filters_dict, $3)) {
+		yyerror("smtp filter already declared with that name: %s", $3);
+		YYERROR;
+	}
+
+	filter = xcalloc(1, sizeof (*filter));
+	filter->command = $4;
+	filter->user = $6;
+	filter->group = $8;
+
+	dict_set(conf->sc_smtp_filters_dict, $3, filter);
 }
 |SMTP LIMIT limits_smtp
 | SMTP CIPHERS STRING {
@@ -1062,6 +1078,24 @@ MATCH {
 }
 ;
 
+filter_action_external:
+FILTER STRING {
+	filter_rule->filter = $2;
+}
+;
+
+filter_action_builtin:
+REJECT STRING {
+	filter_rule->reject = $2;
+}
+| DISCONNECT STRING {
+	filter_rule->disconnect = $2;
+}
+| REWRITE STRING {
+	filter_rule->rewrite = $2;
+}
+;
+
 filter_phase_check_table:
 negation CHECK_TABLE tables {
 	filter_rule->not_table =  $1 ? -1 : 1;
@@ -1079,11 +1113,13 @@ negation CHECK_REGEX tables {
 filter_phase_connect_options:
 filter_phase_check_table | filter_phase_check_regex;
 
-
 filter_phase_connect:
 CONNECT {
 	filter_rule->phase = FILTER_CONNECTED;
-} filter_phase_connect_options
+} filter_phase_connect_options filter_action_builtin
+| CONNECT {
+	filter_rule->phase = FILTER_CONNECTED;
+} filter_action_external
 ;
 
 filter_phase_helo_options:
@@ -1092,13 +1128,19 @@ filter_phase_check_table | filter_phase_check_regex;
 filter_phase_helo:
 HELO {
 	filter_rule->phase = FILTER_HELO;
-} filter_phase_helo_options
+} filter_phase_helo_options filter_action_builtin
+| HELO {
+	filter_rule->phase = FILTER_HELO;
+} filter_action_external
 ;
 
 filter_phase_ehlo:
 EHLO {
 	filter_rule->phase = FILTER_EHLO;
-} filter_phase_helo_options
+} filter_phase_helo_options filter_action_builtin
+| EHLO {
+	filter_rule->phase = FILTER_EHLO;
+} filter_action_external
 ;
 
 filter_phase_mail_from_options:
@@ -1107,7 +1149,10 @@ filter_phase_check_table | filter_phase_check_regex;
 filter_phase_mail_from:
 MAIL_FROM {
 	filter_rule->phase = FILTER_MAIL_FROM;
-} filter_phase_mail_from_options
+} filter_phase_mail_from_options filter_action_builtin
+| MAIL_FROM {
+	filter_rule->phase = FILTER_MAIL_FROM;
+} filter_action_external
 ;
 
 filter_phase_rcpt_to_options:
@@ -1116,31 +1161,46 @@ filter_phase_check_table | filter_phase_check_regex;
 filter_phase_rcpt_to:
 RCPT_TO {
 	filter_rule->phase = FILTER_RCPT_TO;
-} filter_phase_rcpt_to_options
+} filter_phase_rcpt_to_options filter_action_builtin
+| RCPT_TO {
+	filter_rule->phase = FILTER_RCPT_TO;
+} filter_action_external
 ;
 
 filter_phase_data:
 DATA {
 	filter_rule->phase = FILTER_DATA;
-}
+} filter_action_builtin
+| DATA {
+	filter_rule->phase = FILTER_DATA;
+} filter_action_external
 ;
 
 filter_phase_quit:
 QUIT {
 	filter_rule->phase = FILTER_QUIT;
-}
+} filter_action_builtin
+| QUIT {
+	filter_rule->phase = FILTER_QUIT;
+} filter_action_external
 ;
 
 filter_phase_rset:
 RSET {
 	filter_rule->phase = FILTER_RSET;
-}
+} filter_action_builtin
+| RSET {
+	filter_rule->phase = FILTER_RSET;
+} filter_action_external
 ;
 
 filter_phase_noop:
 NOOP {
 	filter_rule->phase = FILTER_NOOP;
-}
+} filter_action_builtin
+| NOOP {
+	filter_rule->phase = FILTER_NOOP;
+} filter_action_external
 ;
 
 filter_phase:
@@ -1155,19 +1215,10 @@ filter_phase_connect
 | filter_phase_rset
 ;
 
-filter_action:
-REJECT STRING {
-	filter_rule->reject = $2;
-}
-| DISCONNECT STRING {
-	filter_rule->disconnect = $2;
-}
-;
-
 filter:
 ON {
 	filter_rule = xcalloc(1, sizeof *filter_rule);
-} filter_phase filter_action {
+} filter_phase {
 	TAILQ_INSERT_TAIL(&conf->sc_filter_rules[filter_rule->phase], filter_rule, entry);
 	filter_rule = NULL;
 }
@@ -1730,13 +1781,14 @@ lookup(char *s)
 		{ "disconnect",		DISCONNECT },
 		{ "domain",		DOMAIN },
 		{ "ehlo",		EHLO },
+		{ "enable",      	ENABLE },
 		{ "encryption",		ENCRYPTION },
 		{ "expand-only",      	EXPAND_ONLY },
-		{ "experimental",      	EXPERIMENTAL },
 		{ "filter",		FILTER },
 		{ "for",		FOR },
 		{ "forward-only",      	FORWARD_ONLY },
 		{ "from",		FROM },
+		{ "group",		GROUP },
 		{ "helo",		HELO },
 		{ "helo-src",       	HELO_SRC },
 		{ "host",		HOST },
@@ -1775,6 +1827,7 @@ lookup(char *s)
 		{ "recipient",		RECIPIENT },
 		{ "reject",		REJECT },
 		{ "relay",		RELAY },
+		{ "rewrite", 		REWRITE },
 		{ "rset",		RSET },
 		{ "scheduler",		SCHEDULER },
 		{ "senders",   		SENDERS },

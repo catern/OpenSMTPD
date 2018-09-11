@@ -317,7 +317,7 @@ enum smtp_proc_type {
 	PROC_SCHEDULER,
 	PROC_PONY,
 	PROC_CA,
-
+	PROC_FILTER,
 	PROC_CLIENT,
 };
 
@@ -552,6 +552,7 @@ struct smtpd {
 	size_t				sc_scheduler_max_schedule;
 
 	uint8_t				sc_smtp_experimental_filter;
+	struct dict		       *sc_smtp_filters_dict;
 	
 	int				sc_ttl;
 #define MAX_BOUNCE_WARN			4
@@ -999,12 +1000,24 @@ enum lka_resp_status {
 	LKA_PERMFAIL
 };
 
+struct filter {
+	const char		       *command;
+	const char		       *user;
+	const char		       *group;
+};
+
+struct filter_proc {
+	pid_t				pid;
+};
+
 struct filter_rule {
 	TAILQ_ENTRY(filter_rule)	entry;
 
 	enum filter_phase		phase;
 	char			       *reject;
 	char			       *disconnect;
+	char			       *rewrite;
+	char			       *filter;
 
 	int8_t				not_table;
 	struct table		       *table;
@@ -1015,6 +1028,7 @@ struct filter_rule {
 
 enum filter_status {
 	FILTER_PROCEED,
+	FILTER_REWRITE,
 	FILTER_REJECT,
 	FILTER_DISCONNECT,
 };

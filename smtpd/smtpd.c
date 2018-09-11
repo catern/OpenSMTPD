@@ -34,6 +34,7 @@
 #include <event.h>
 #include <fcntl.h>
 #include <fts.h>
+#include <grp.h>
 #include <imsg.h>
 #include <inttypes.h>
 #include <login_cap.h>
@@ -89,9 +90,13 @@ static int	parent_auth_user(const char *, const char *);
 static void	load_pki_tree(void);
 static void	load_pki_keys(void);
 
+static void	fork_filters(void);
+static void	fork_filter(const char *, const char *, const char *, const char *);
+
 enum child_type {
 	CHILD_DAEMON,
 	CHILD_MDA,
+	CHILD_FILTER,
 	CHILD_ENQUEUE_OFFLINE,
 };
 
@@ -656,6 +661,9 @@ main(int argc, char *argv[])
 			}
 		}
 
+		fork_filters();
+		
+		
 		log_info("info: %s %s starting", SMTPD_NAME, SMTPD_VERSION);
 
 		if (!foreground)
@@ -1229,6 +1237,79 @@ purge_task(void)
 }
 
 static void
+fork_filters(void)
+{
+	const char	*name;
+	struct filter	*filter;
+	void		*iter;
+
+	iter = NULL;
+	while (dict_iter(env->sc_smtp_filters_dict, &iter, &name, &filter)) {
+		fork_filter(name, filter->command, filter->user, filter->group);
+		//child_add(p_queue->pid, CHILD_DAEMON, name);
+		log_debug("#### XXXX %s", name);
+	}
+}
+
+static void
+fork_filter(const char *name, const char *command, const char *user, const char *group)
+{
+	struct child	*child;
+	pid_t		 pid;
+	int		 sp[2];
+	struct passwd	*pw;
+	struct group	*gr;
+
+	log_debug("debug: smtpd: forking filter %s %s user=%s,group=%s", name, command, user, group);
+
+	if ((pw = getpwnam(user)) == NULL)
+		err(1, "getpwnam");
+	
+	if ((gr = getgrnam(group)) == NULL)
+		err(1, "getgrnam");
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, sp) == -1)
+		err(1, "socketpair");
+
+	if ((pid = fork()) < 0)
+		err(1, "fork");
+
+	/* parent passes the child fd over to lka */
+	if (pid > 0) {
+		close(sp[0]);
+		return;
+	}
+
+	setproctitle("%s", name);
+	
+	if (setgroups(1, &gr->gr_gid) ||
+	    setresgid(gr->gr_gid, gr->gr_gid, gr->gr_gid) ||
+	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
+		err(1, "forkmda: cannot drop privileges");
+
+	if (closefrom(STDERR_FILENO + 1) < 0)
+		err(1, "closefrom");
+	if (setsid() < 0)
+		err(1, "setsid");
+	if (signal(SIGPIPE, SIG_DFL) == SIG_ERR ||
+	    signal(SIGINT, SIG_DFL) == SIG_ERR ||
+	    signal(SIGTERM, SIG_DFL) == SIG_ERR ||
+	    signal(SIGCHLD, SIG_DFL) == SIG_ERR ||
+	    signal(SIGHUP, SIG_DFL) == SIG_ERR)
+		err(1, "signal");
+
+
+	close(sp[1]);
+	dup2(sp[0], STDIN_FILENO);
+	
+	execle("/bin/sh", "/bin/sh", "-c", command, (char *)NULL, NULL);
+
+	perror("execle");
+	_exit(1);
+	//mda_unpriv(dsp, deliver, pw_name, pw_dir);
+}
+
+static void
 forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 {
 	char		 ebuf[128], sfn[32];
@@ -1725,6 +1806,8 @@ proc_title(enum smtp_proc_type proc)
 		return "klondike";
 	case PROC_CLIENT:
 		return "client";
+	case PROC_FILTER:
+		return "filter";
 	}
 	return "unknown";
 }
