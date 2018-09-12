@@ -484,6 +484,21 @@ SMTP FILTER ENABLE {
 
 	dict_set(conf->sc_smtp_filters_dict, $3, filter);
 }
+| SMTP FILTER STRING STRING USER STRING {
+	struct filter	*filter;
+
+	if (dict_get(conf->sc_smtp_filters_dict, $3)) {
+		yyerror("smtp filter already declared with that name: %s", $3);
+		YYERROR;
+	}
+
+	filter = xcalloc(1, sizeof (*filter));
+	filter->command = $4;
+	filter->user = $6;
+	filter->group = $6;
+
+	dict_set(conf->sc_smtp_filters_dict, $3, filter);
+}
 |SMTP LIMIT limits_smtp
 | SMTP CIPHERS STRING {
 	conf->sc_tls_ciphers = $3;

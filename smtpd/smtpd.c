@@ -387,6 +387,12 @@ parent_sig_handler(int sig, short event, void *p)
 				goto skip;
 
 			switch (child->type) {
+			case CHILD_FILTER:
+				if (fail)
+					log_warnx("warn: lost filter: %s %s",
+					    child->title, cause);
+				break;
+
 			case CHILD_DAEMON:
 				if (fail)
 					log_warnx("warn: lost child: %s %s",
@@ -661,9 +667,6 @@ main(int argc, char *argv[])
 			}
 		}
 
-		fork_filters();
-		
-		
 		log_info("info: %s %s starting", SMTPD_NAME, SMTPD_VERSION);
 
 		if (!foreground)
@@ -1061,6 +1064,8 @@ smtpd(void) {
 	offline_timeout.tv_usec = 0;
 	evtimer_add(&offline_ev, &offline_timeout);
 
+	fork_filters();
+	
 	purge_task();
 
 	if (pledge("stdio rpath wpath cpath fattr flock tmppath "
@@ -1244,17 +1249,13 @@ fork_filters(void)
 	void		*iter;
 
 	iter = NULL;
-	while (dict_iter(env->sc_smtp_filters_dict, &iter, &name, &filter)) {
+	while (dict_iter(env->sc_smtp_filters_dict, &iter, &name, (void **)&filter))
 		fork_filter(name, filter->command, filter->user, filter->group);
-		//child_add(p_queue->pid, CHILD_DAEMON, name);
-		log_debug("#### XXXX %s", name);
-	}
 }
 
 static void
 fork_filter(const char *name, const char *command, const char *user, const char *group)
 {
-	struct child	*child;
 	pid_t		 pid;
 	int		 sp[2];
 	struct passwd	*pw;
@@ -1276,11 +1277,18 @@ fork_filter(const char *name, const char *command, const char *user, const char 
 
 	/* parent passes the child fd over to lka */
 	if (pid > 0) {
+		log_debug("#### IN PARENT: %s", name);
+		child_add(pid, CHILD_FILTER, name);
 		close(sp[0]);
+		m_create(p_lka, IMSG_LKA_FILTER_FORK, 0, 0, sp[1]);
+		m_add_string(p_lka, name);
+		m_close(p_lka);
 		return;
 	}
 
-	setproctitle("%s", name);
+	close(sp[1]);
+	dup2(sp[0], STDIN_FILENO);
+	dup2(sp[0], STDOUT_FILENO);
 	
 	if (setgroups(1, &gr->gr_gid) ||
 	    setresgid(gr->gr_gid, gr->gr_gid, gr->gr_gid) ||
@@ -1298,15 +1306,10 @@ fork_filter(const char *name, const char *command, const char *user, const char 
 	    signal(SIGHUP, SIG_DFL) == SIG_ERR)
 		err(1, "signal");
 
-
-	close(sp[1]);
-	dup2(sp[0], STDIN_FILENO);
-	
-	execle("/bin/sh", "/bin/sh", "-c", command, (char *)NULL, NULL);
+	execle(command, name, (char *)NULL, NULL);
 
 	perror("execle");
 	_exit(1);
-	//mda_unpriv(dsp, deliver, pw_name, pw_dir);
 }
 
 static void
@@ -1989,6 +1992,7 @@ imsg_to_str(int type)
 	CASE(IMSG_SMTP_EVENT_DISCONNECT);
 
 	CASE(IMSG_SMTP_FILTER);
+	CASE(IMSG_LKA_FILTER_FORK);
 	
 	CASE(IMSG_CA_PRIVENC);
 	CASE(IMSG_CA_PRIVDEC);

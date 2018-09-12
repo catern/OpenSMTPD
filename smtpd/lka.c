@@ -79,7 +79,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 	struct msg		 m;
 	union lookup		 lk;
 	char			 buf[LINE_MAX];
-	const char		*tablename, *username, *password, *label;
+	const char		*tablename, *username, *password, *label, *filtername;
 	uint64_t		 reqid;
 	int			 v;
 	int			 filter_phase;
@@ -390,6 +390,15 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_compose(p_control,
 		    (ret == 1) ? IMSG_CTL_OK : IMSG_CTL_FAIL,
 		    imsg->hdr.peerid, 0, -1, NULL, 0);
+		return;
+
+	case IMSG_LKA_FILTER_FORK:
+		m_msg(&m, imsg);
+		m_get_string(&m, &filtername);
+		m_end(&m);
+
+		lka_filter_forked(filtername, imsg->fd);
+
 		return;
 
 	case IMSG_SMTP_FILTER:

@@ -304,7 +304,8 @@ enum imsg_type {
 	IMSG_SMTP_EVENT_DISCONNECT,
 
 	IMSG_SMTP_FILTER,
-
+	IMSG_LKA_FILTER_FORK,
+	
 	IMSG_CA_PRIVENC,
 	IMSG_CA_PRIVDEC
 };
@@ -1278,7 +1279,7 @@ int lka(void);
 
 /* lka_filter.c */
 void lka_filter(uint64_t, enum filter_phase, const char *);
-
+void lka_filter_forked(const char *, int);
 
 /* lka_session.c */
 void lka_session(uint64_t, struct envelope *);
