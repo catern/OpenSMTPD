@@ -447,7 +447,6 @@ PROC STRING STRING {
 }
 ;
 
-
 proc_params_opt:
 USER STRING {
 	if (processor->user) {
