@@ -571,7 +571,7 @@ smtp_session(struct listener *listener, int sock,
 
 	smtp_report_link_connect(s->id, ss_to_text(&s->ss),
 	    ss_to_text(&s->listener->ss));
-	
+
 	return (0);
 }
 
