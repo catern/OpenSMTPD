@@ -52,8 +52,8 @@ report_smtp_broadcast(const char *direction, time_t tm, const char *format, ...)
 
 	va_start(ap, format);
 	while (dict_iter(d, &hdl, &reporter, NULL)) {
-		if (io_printf(lka_proc_get_io(reporter), "report|%d|%zd|",
-			PROTOCOL_VERSION, tm) == -1 ||
+		if (io_printf(lka_proc_get_io(reporter), "report|%d|%zd|%s|",
+			PROTOCOL_VERSION, tm, direction) == -1 ||
 		    io_vprintf(lka_proc_get_io(reporter), format, ap) == -1)
 			fatalx("failed to write to processor");
 	}
