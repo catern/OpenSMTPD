@@ -127,6 +127,7 @@ struct mta_session {
 	struct mta_task		*task;
 	struct mta_envelope	*currevp;
 	FILE			*datafp;
+	size_t			 dataolen;
 
 	size_t			 failures;
 
@@ -292,6 +293,7 @@ mta_session_imsg(struct mproc *p, struct imsg *imsg)
 		s->datafp = fdopen(imsg->fd, "r");
 		if (s->datafp == NULL)
 			fatal("mta: fdopen");
+		s->dataolen = 0;
 
 		mta_enter_state(s, MTA_MAIL);
 		return;
@@ -988,7 +990,7 @@ mta_response(struct mta_session *s, char *line)
 			mta_enter_state(s, MTA_RSET);
 			return;
 		}
-		mta_report_tx_begin(s->id, 0);
+		mta_report_tx_begin(s->id, s->task->msgid);
 		mta_enter_state(s, MTA_RCPT);
 		break;
 
@@ -1003,7 +1005,7 @@ mta_response(struct mta_session *s, char *line)
 
 		s->currevp = TAILQ_NEXT(s->currevp, entry);
 		if (line[0] == '2') {
-			mta_report_tx_envelope(s->id, 0, 0);
+			mta_report_tx_envelope(s->id, s->task->msgid, e->id);
 			s->failures = 0;
 			/*
 			 * this host is up, reschedule envelopes that
@@ -1049,7 +1051,7 @@ mta_response(struct mta_session *s, char *line)
 			    s->failures == s->relay->limits->max_failures_per_session) {
 					mta_flush_task(s, IMSG_MTA_DELIVERY_TEMPFAIL,
 					    "Too many consecutive errors, closing connection", 0, 1);
-					mta_report_tx_rollback(s->id, 0);
+					mta_report_tx_rollback(s->id, s->task->msgid);
 					mta_enter_state(s, MTA_QUIT);
 					break;
 				}
@@ -1060,7 +1062,7 @@ mta_response(struct mta_session *s, char *line)
 			if (TAILQ_EMPTY(&s->task->envelopes)) {
 				mta_flush_task(s, IMSG_MTA_DELIVERY_OK,
 				    "No envelope", 0, 0);
-				mta_report_tx_rollback(s->id, 0);
+				mta_report_tx_rollback(s->id, s->task->msgid);
 				mta_enter_state(s, MTA_RSET);
 				break;
 			}
@@ -1082,16 +1084,16 @@ mta_response(struct mta_session *s, char *line)
 		else
 			delivery = IMSG_MTA_DELIVERY_TEMPFAIL;
 		mta_flush_task(s, delivery, line, 0, 0);
-		mta_report_tx_rollback(s->id, 0);
+		mta_report_tx_rollback(s->id, s->task->msgid);
 		mta_enter_state(s, MTA_RSET);
 		break;
 
 	case MTA_LMTP_EOM:
 	case MTA_EOM:
 		if (line[0] == '2')
-			mta_report_tx_commit(s->id, 0, 0);
+			mta_report_tx_commit(s->id, s->task->msgid, s->dataolen);
 		else
-			mta_report_tx_rollback(s->id, 0);
+			mta_report_tx_rollback(s->id, s->task->msgid);
 
 		if (line[0] == '2') {
 			delivery = IMSG_MTA_DELIVERY_OK;
@@ -1411,7 +1413,7 @@ mta_queue_data(struct mta_session *s)
 			break;
 		if (ln[len - 1] == '\n')
 			ln[len - 1] = '\0';
-		io_xprintf(s->io, "%s%s\r\n", *ln == '.' ? "." : "", ln);
+		s->dataolen += io_xprintf(s->io, "%s%s\r\n", *ln == '.' ? "." : "", ln);
 	}
 
 	free(ln);

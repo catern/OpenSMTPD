@@ -1306,25 +1306,15 @@ struct io *lka_proc_get_io(const char *);
 
 
 /* lka_report.c */
-void lka_report_smtp_link_connect(time_t, uint64_t, const char *, const struct sockaddr_storage *, const struct sockaddr_storage *);
-void lka_report_smtp_link_disconnect(time_t, uint64_t);
-void lka_report_smtp_link_tls(time_t, uint64_t, const char *);
-void lka_report_smtp_tx_begin(time_t, uint64_t, uint32_t);
-void lka_report_smtp_tx_envelope(time_t, uint64_t, uint32_t, uint64_t);
-void lka_report_smtp_tx_commit(time_t, uint64_t, uint32_t, size_t);
-void lka_report_smtp_tx_rollback(time_t, uint64_t, uint32_t);
-void lka_report_smtp_protocol_client(time_t, uint64_t, const char *);
-void lka_report_smtp_protocol_server(time_t, uint64_t, const char *);
-
-void lka_report_mta_link_connect(time_t, uint64_t, const char *, const struct sockaddr_storage *, const struct sockaddr_storage *);
-void lka_report_mta_link_disconnect(time_t, uint64_t);
-void lka_report_mta_link_tls(time_t, uint64_t, const char *);
-void lka_report_mta_tx_begin(time_t, uint64_t, uint32_t);
-void lka_report_mta_tx_envelope(time_t, uint64_t, uint32_t, uint64_t);
-void lka_report_mta_tx_commit(time_t, uint64_t, uint32_t, size_t);
-void lka_report_mta_tx_rollback(time_t, uint64_t, uint32_t);
-void lka_report_mta_protocol_client(time_t, uint64_t, const char *);
-void lka_report_mta_protocol_server(time_t, uint64_t, const char *);
+void lka_report_smtp_link_connect(const char *, time_t, uint64_t, const char *, const struct sockaddr_storage *, const struct sockaddr_storage *);
+void lka_report_smtp_link_disconnect(const char *, time_t, uint64_t);
+void lka_report_smtp_link_tls(const char *, time_t, uint64_t, const char *);
+void lka_report_smtp_tx_begin(const char *, time_t, uint64_t, uint32_t);
+void lka_report_smtp_tx_envelope(const char *, time_t, uint64_t, uint32_t, uint64_t);
+void lka_report_smtp_tx_commit(const char *, time_t, uint64_t, uint32_t, size_t);
+void lka_report_smtp_tx_rollback(const char *, time_t, uint64_t, uint32_t);
+void lka_report_smtp_protocol_client(const char *, time_t, uint64_t, const char *);
+void lka_report_smtp_protocol_server(const char *, time_t, uint64_t, const char *);
 
 
 /* lka_filter.c */
