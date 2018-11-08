@@ -52,6 +52,22 @@ report_smtp_broadcast(const char *format, ...)
 	va_end(ap);
 }
 
+static void
+report_mta_broadcast(const char *format, ...)
+{
+	va_list		ap;
+	void		*hdl = NULL;
+	const char	*reporter;
+
+	va_start(ap, format);
+	while (dict_iter(env->sc_mta_reporters_dict, &hdl, &reporter, NULL)) {
+		if (io_vprintf(lka_proc_get_io(reporter), format, ap) == -1)
+			fatalx("failed to write to processor");
+	}
+	va_end(ap);
+}
+
+
 void
 lka_report_smtp_link_connect(time_t tm, uint64_t reqid, const char *rdns,
     const struct sockaddr_storage *ss_src,
@@ -141,6 +157,100 @@ void
 lka_report_smtp_protocol_server(time_t tm, uint64_t reqid, const char *response)
 {
 	report_smtp_broadcast("report|%d|%zd|smtp-in|protocol-server|"
+	    "%016"PRIx64"|%s\n",
+	    PROTOCOL_VERSION, tm, reqid, response);
+}
+
+
+void
+lka_report_mta_link_connect(time_t tm, uint64_t reqid, const char *rdns,
+    const struct sockaddr_storage *ss_src,
+    const struct sockaddr_storage *ss_dest)
+{
+	char	src[NI_MAXHOST + 5];
+	char	dest[NI_MAXHOST + 5];
+	uint16_t	src_port = 0;
+	uint16_t	dest_port = 0;
+
+	if (ss_src->ss_family == AF_INET)
+		src_port = ntohs(((const struct sockaddr_in *)ss_src)->sin_port);
+	else if (ss_src->ss_family == AF_INET6)
+		src_port = ntohs(((const struct sockaddr_in6 *)ss_src)->sin6_port);
+
+	if (ss_dest->ss_family == AF_INET)
+		dest_port = ntohs(((const struct sockaddr_in *)ss_dest)->sin_port);
+	else if (ss_dest->ss_family == AF_INET6)
+		dest_port = ntohs(((const struct sockaddr_in6 *)ss_dest)->sin6_port);
+
+	(void)strlcpy(src, ss_to_text(ss_src), sizeof src);
+	(void)strlcpy(dest, ss_to_text(ss_dest), sizeof dest);
+
+	report_mta_broadcast("report|%d|%zd|smtp-out|link-connect|"
+	    "%016"PRIx64"|%s|%s:%d|%s:%d\n",
+	    PROTOCOL_VERSION,
+	    tm, reqid, rdns, src, src_port, dest, dest_port);
+}
+
+void
+lka_report_mta_link_disconnect(time_t tm, uint64_t reqid)
+{
+	report_mta_broadcast("report|%d|%zd|smtp-out|link-disconnect|"
+	    "%016"PRIx64"\n",
+	    PROTOCOL_VERSION, tm, reqid);
+}
+
+void
+lka_report_mta_link_tls(time_t tm, uint64_t reqid, const char *ciphers)
+{
+	report_mta_broadcast("report|%d|%zd|smtp-out|link-tls|"
+	    "%016"PRIx64"|%s\n",
+	    PROTOCOL_VERSION, tm, reqid, ciphers);
+}
+
+void
+lka_report_mta_tx_begin(time_t tm, uint64_t reqid, uint32_t msgid)
+{
+	report_mta_broadcast("report|%d|%zd|smtp-out|tx-begin|"
+	    "%016"PRIx64"|%08x\n",
+	    PROTOCOL_VERSION, tm, reqid, msgid);
+}
+
+void
+lka_report_mta_tx_envelope(time_t tm, uint64_t reqid, uint32_t msgid, uint64_t evpid)
+{
+	report_mta_broadcast("report|%d|%zd|smtp-out|tx-envelope|"
+	    "%016"PRIx64"|%08x|%016"PRIx64"\n",
+	    PROTOCOL_VERSION, tm, reqid, msgid, evpid);
+}
+
+void
+lka_report_mta_tx_commit(time_t tm, uint64_t reqid, uint32_t msgid, size_t msgsz)
+{
+	report_mta_broadcast("report|%d|%zd|smtp-out|tx-commit|"
+	    "%016"PRIx64"|%08x|%zd\n",
+	    PROTOCOL_VERSION, tm, reqid, msgid, msgsz);
+}
+
+void
+lka_report_mta_tx_rollback(time_t tm, uint64_t reqid)
+{
+	report_mta_broadcast("report|%d|%zd|smtp-out|tx-rollback|"
+	    "%016"PRIx64"\n",
+	    PROTOCOL_VERSION, tm, reqid);
+}
+
+void
+lka_report_mta_protocol_client(time_t tm, uint64_t reqid, const char *command)
+{
+	report_mta_broadcast("report|%d|%zd|smtp-out|protocol-client|"
+	    "%016"PRIx64"|%s\n",
+	    PROTOCOL_VERSION, tm, reqid, command);
+}
+
+void
+lka_report_mta_protocol_server(time_t tm, uint64_t reqid, const char *response)
+{
+	report_mta_broadcast("report|%d|%zd|smtp-out|protocol-server|"
 	    "%016"PRIx64"|%s\n",
 	    PROTOCOL_VERSION, tm, reqid, response);
 }

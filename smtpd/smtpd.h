@@ -308,14 +308,22 @@ enum imsg_type {
 	IMSG_SMTP_REPORT_LINK_CONNECT,
 	IMSG_SMTP_REPORT_LINK_DISCONNECT,
 	IMSG_SMTP_REPORT_LINK_TLS,
-
 	IMSG_SMTP_REPORT_TX_BEGIN,
 	IMSG_SMTP_REPORT_TX_ENVELOPE,
 	IMSG_SMTP_REPORT_TX_COMMIT,
 	IMSG_SMTP_REPORT_TX_ROLLBACK,
-
 	IMSG_SMTP_REPORT_PROTOCOL_CLIENT,
 	IMSG_SMTP_REPORT_PROTOCOL_SERVER,
+
+	IMSG_MTA_REPORT_LINK_CONNECT,
+	IMSG_MTA_REPORT_LINK_DISCONNECT,
+	IMSG_MTA_REPORT_LINK_TLS,
+	IMSG_MTA_REPORT_TX_BEGIN,
+	IMSG_MTA_REPORT_TX_ENVELOPE,
+	IMSG_MTA_REPORT_TX_COMMIT,
+	IMSG_MTA_REPORT_TX_ROLLBACK,
+	IMSG_MTA_REPORT_PROTOCOL_CLIENT,
+	IMSG_MTA_REPORT_PROTOCOL_SERVER,
 
 	IMSG_SMTP_FILTER,
 
@@ -566,6 +574,7 @@ struct smtpd {
 
 	struct dict		       *sc_processors_dict;
 	struct dict		       *sc_smtp_reporters_dict;
+	struct dict		       *sc_mta_reporters_dict;
 
 	int				sc_ttl;
 #define MAX_BOUNCE_WARN			4
@@ -1307,6 +1316,16 @@ void lka_report_smtp_tx_rollback(time_t, uint64_t);
 void lka_report_smtp_protocol_client(time_t, uint64_t, const char *);
 void lka_report_smtp_protocol_server(time_t, uint64_t, const char *);
 
+void lka_report_mta_link_connect(time_t, uint64_t, const char *, const struct sockaddr_storage *, const struct sockaddr_storage *);
+void lka_report_mta_link_disconnect(time_t, uint64_t);
+void lka_report_mta_link_tls(time_t, uint64_t, const char *);
+void lka_report_mta_tx_begin(time_t, uint64_t, uint32_t);
+void lka_report_mta_tx_envelope(time_t, uint64_t, uint32_t, uint64_t);
+void lka_report_mta_tx_commit(time_t, uint64_t, uint32_t, size_t);
+void lka_report_mta_tx_rollback(time_t, uint64_t);
+void lka_report_mta_protocol_client(time_t, uint64_t, const char *);
+void lka_report_mta_protocol_server(time_t, uint64_t, const char *);
+
 
 /* lka_filter.c */
 void lka_filter(uint64_t, enum filter_phase, const char *, const char *);
@@ -1411,6 +1430,18 @@ void mta_delivery_notify(struct mta_envelope *);
 struct mta_task *mta_route_next_task(struct mta_relay *, struct mta_route *);
 const char *mta_host_to_text(struct mta_host *);
 const char *mta_relay_to_text(struct mta_relay *);
+
+
+/* mta_report.c */
+void mta_report_link_connect(uint64_t, const char *, const struct sockaddr_storage *, const struct sockaddr_storage *);
+void mta_report_link_disconnect(uint64_t);
+void mta_report_link_tls(uint64_t, const char *);
+void mta_report_tx_begin(uint64_t, uint32_t);
+void mta_report_tx_envelope(uint64_t, uint32_t, uint64_t);
+void mta_report_tx_commit(uint64_t, uint32_t, size_t);
+void mta_report_tx_rollback(uint64_t);
+void mta_report_protocol_client(uint64_t, const char *);
+void mta_report_protocol_server(uint64_t, const char *);
 
 
 /* mta_session.c */

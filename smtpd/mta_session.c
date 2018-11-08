@@ -1146,7 +1146,6 @@ mta_io(struct io *io, int evt, void *arg)
 
 	case IO_CONNECTED:
 		log_info("%016"PRIx64" mta connected", s->id);
-
 		if (s->use_smtps) {
 			io_set_write(io);
 			mta_start_tls(s);

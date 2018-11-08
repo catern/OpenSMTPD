@@ -502,6 +502,99 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		lka_report_smtp_protocol_server(tm, reqid, response);
 		return;
 
+	case IMSG_MTA_REPORT_LINK_CONNECT:
+		m_msg(&m, imsg);
+		m_get_time(&m, &tm);
+		m_get_id(&m, &reqid);
+		m_get_string(&m, &rdns);
+		m_get_sockaddr(&m, (struct sockaddr *)&ss_src);
+		m_get_sockaddr(&m, (struct sockaddr *)&ss_dest);
+		m_end(&m);
+
+		lka_report_mta_link_connect(tm, reqid, rdns, &ss_src, &ss_dest);
+		return;
+
+	case IMSG_MTA_REPORT_LINK_DISCONNECT:
+		m_msg(&m, imsg);
+		m_get_time(&m, &tm);
+		m_get_id(&m, &reqid);
+		m_end(&m);
+
+		lka_report_mta_link_disconnect(tm, reqid);
+		return;
+
+	case IMSG_MTA_REPORT_LINK_TLS:
+		m_msg(&m, imsg);
+		m_get_time(&m, &tm);
+		m_get_id(&m, &reqid);
+		m_get_string(&m, &ciphers);
+		m_end(&m);
+
+		lka_report_mta_link_tls(tm, reqid, ciphers);
+		return;
+
+	case IMSG_MTA_REPORT_TX_BEGIN:
+		m_msg(&m, imsg);
+		m_get_time(&m, &tm);
+		m_get_id(&m, &reqid);
+		m_get_u32(&m, &msgid);
+		m_end(&m);
+
+		lka_report_mta_tx_begin(tm, reqid, msgid);
+		return;
+
+	case IMSG_MTA_REPORT_TX_ENVELOPE:
+		m_msg(&m, imsg);
+		m_get_time(&m, &tm);
+		m_get_id(&m, &reqid);
+		m_get_u32(&m, &msgid);
+		m_get_id(&m, &evpid);
+		m_end(&m);
+
+		lka_report_mta_tx_envelope(tm, reqid, msgid, evpid);
+		return;
+
+	case IMSG_MTA_REPORT_TX_COMMIT:
+		m_msg(&m, imsg);
+		m_get_time(&m, &tm);
+		m_get_id(&m, &reqid);
+		m_get_u32(&m, &msgid);
+		m_get_size(&m, &msgsz);
+		m_end(&m);
+
+		lka_report_mta_tx_commit(tm, reqid, msgid, msgsz);
+		return;
+
+	case IMSG_MTA_REPORT_TX_ROLLBACK:
+		m_msg(&m, imsg);
+		m_get_time(&m, &tm);
+		m_get_id(&m, &reqid);
+		m_end(&m);
+
+		lka_report_mta_tx_rollback(tm, reqid);
+		return;
+
+	case IMSG_MTA_REPORT_PROTOCOL_CLIENT:
+		m_msg(&m, imsg);
+		m_get_time(&m, &tm);
+		m_get_id(&m, &reqid);
+		m_get_string(&m, &command);
+		m_end(&m);
+
+		lka_report_mta_protocol_client(tm, reqid, command);
+		return;
+
+	case IMSG_MTA_REPORT_PROTOCOL_SERVER:
+		m_msg(&m, imsg);
+		m_get_time(&m, &tm);
+		m_get_id(&m, &reqid);
+		m_get_string(&m, &response);
+		m_end(&m);
+
+		lka_report_mta_protocol_server(tm, reqid, response);
+		return;
+
+
 	case IMSG_SMTP_FILTER:
 		m_msg(&m, imsg);
 		m_get_id(&m, &reqid);
