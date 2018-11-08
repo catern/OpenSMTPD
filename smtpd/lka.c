@@ -512,7 +512,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_get_sockaddr(&m, (struct sockaddr *)&ss_dest);
 		m_end(&m);
 
-		lka_report_smtp_link_connect("smtp-in", tm, reqid, rdns, &ss_src, &ss_dest);
+		lka_report_smtp_link_connect("smtp-out", tm, reqid, rdns, &ss_src, &ss_dest);
 		return;
 
 	case IMSG_MTA_REPORT_LINK_DISCONNECT:
@@ -521,7 +521,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_get_id(&m, &reqid);
 		m_end(&m);
 
-		lka_report_smtp_link_disconnect("smtp-in", tm, reqid);
+		lka_report_smtp_link_disconnect("smtp-out", tm, reqid);
 		return;
 
 	case IMSG_MTA_REPORT_LINK_TLS:
@@ -531,7 +531,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_get_string(&m, &ciphers);
 		m_end(&m);
 
-		lka_report_smtp_link_tls("smtp-in", tm, reqid, ciphers);
+		lka_report_smtp_link_tls("smtp-out", tm, reqid, ciphers);
 		return;
 
 	case IMSG_MTA_REPORT_TX_BEGIN:
@@ -541,7 +541,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_get_u32(&m, &msgid);
 		m_end(&m);
 
-		lka_report_smtp_tx_begin("smtp-in", tm, reqid, msgid);
+		lka_report_smtp_tx_begin("smtp-out", tm, reqid, msgid);
 		return;
 
 	case IMSG_MTA_REPORT_TX_ENVELOPE:
@@ -552,7 +552,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_get_id(&m, &evpid);
 		m_end(&m);
 
-		lka_report_smtp_tx_envelope("smtp-in", tm, reqid, msgid, evpid);
+		lka_report_smtp_tx_envelope("smtp-out", tm, reqid, msgid, evpid);
 		return;
 
 	case IMSG_MTA_REPORT_TX_COMMIT:
@@ -563,7 +563,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_get_size(&m, &msgsz);
 		m_end(&m);
 
-		lka_report_smtp_tx_commit("smtp-in", tm, reqid, msgid, msgsz);
+		lka_report_smtp_tx_commit("smtp-out", tm, reqid, msgid, msgsz);
 		return;
 
 	case IMSG_MTA_REPORT_TX_ROLLBACK:
@@ -573,7 +573,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_get_u32(&m, &msgid);
 		m_end(&m);
 
-		lka_report_smtp_tx_rollback("smtp-in", tm, reqid, msgid);
+		lka_report_smtp_tx_rollback("smtp-out", tm, reqid, msgid);
 		return;
 
 	case IMSG_MTA_REPORT_PROTOCOL_CLIENT:
@@ -583,7 +583,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_get_string(&m, &command);
 		m_end(&m);
 
-		lka_report_smtp_protocol_client("smtp-in", tm, reqid, command);
+		lka_report_smtp_protocol_client("smtp-out", tm, reqid, command);
 		return;
 
 	case IMSG_MTA_REPORT_PROTOCOL_SERVER:
@@ -593,7 +593,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_get_string(&m, &response);
 		m_end(&m);
 
-		lka_report_smtp_protocol_server("smtp-in", tm, reqid, response);
+		lka_report_smtp_protocol_server("smtp-out", tm, reqid, response);
 		return;
 
 
