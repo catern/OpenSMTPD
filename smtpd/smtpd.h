@@ -1312,7 +1312,7 @@ void lka_report_smtp_link_tls(time_t, uint64_t, const char *);
 void lka_report_smtp_tx_begin(time_t, uint64_t, uint32_t);
 void lka_report_smtp_tx_envelope(time_t, uint64_t, uint32_t, uint64_t);
 void lka_report_smtp_tx_commit(time_t, uint64_t, uint32_t, size_t);
-void lka_report_smtp_tx_rollback(time_t, uint64_t);
+void lka_report_smtp_tx_rollback(time_t, uint64_t, uint32_t);
 void lka_report_smtp_protocol_client(time_t, uint64_t, const char *);
 void lka_report_smtp_protocol_server(time_t, uint64_t, const char *);
 
@@ -1322,7 +1322,7 @@ void lka_report_mta_link_tls(time_t, uint64_t, const char *);
 void lka_report_mta_tx_begin(time_t, uint64_t, uint32_t);
 void lka_report_mta_tx_envelope(time_t, uint64_t, uint32_t, uint64_t);
 void lka_report_mta_tx_commit(time_t, uint64_t, uint32_t, size_t);
-void lka_report_mta_tx_rollback(time_t, uint64_t);
+void lka_report_mta_tx_rollback(time_t, uint64_t, uint32_t);
 void lka_report_mta_protocol_client(time_t, uint64_t, const char *);
 void lka_report_mta_protocol_server(time_t, uint64_t, const char *);
 
@@ -1439,7 +1439,7 @@ void mta_report_link_tls(uint64_t, const char *);
 void mta_report_tx_begin(uint64_t, uint32_t);
 void mta_report_tx_envelope(uint64_t, uint32_t, uint64_t);
 void mta_report_tx_commit(uint64_t, uint32_t, size_t);
-void mta_report_tx_rollback(uint64_t);
+void mta_report_tx_rollback(uint64_t, uint32_t);
 void mta_report_protocol_client(uint64_t, const char *);
 void mta_report_protocol_server(uint64_t, const char *);
 
@@ -1518,7 +1518,7 @@ void smtp_report_link_tls(uint64_t, const char *);
 void smtp_report_tx_begin(uint64_t, uint32_t);
 void smtp_report_tx_envelope(uint64_t, uint32_t, uint64_t);
 void smtp_report_tx_commit(uint64_t, uint32_t, size_t);
-void smtp_report_tx_rollback(uint64_t);
+void smtp_report_tx_rollback(uint64_t, uint32_t);
 void smtp_report_protocol_client(uint64_t, const char *);
 void smtp_report_protocol_server(uint64_t, const char *);
 

@@ -109,11 +109,12 @@ mta_report_tx_commit(uint64_t qid, uint32_t msgid, size_t msgsz)
 }
 
 void
-mta_report_tx_rollback(uint64_t qid)
+mta_report_tx_rollback(uint64_t qid, uint32_t msgid)
 {
 	m_create(p_lka, IMSG_MTA_REPORT_TX_ROLLBACK, 0, 0, -1);
 	m_add_time(p_lka, time(NULL));
 	m_add_id(p_lka, qid);
+	m_add_u32(p_lka, msgid);
 	m_close(p_lka);
 }
 

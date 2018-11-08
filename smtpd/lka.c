@@ -477,9 +477,10 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_msg(&m, imsg);
 		m_get_time(&m, &tm);
 		m_get_id(&m, &reqid);
+		m_get_u32(&m, &msgid);
 		m_end(&m);
 
-		lka_report_smtp_tx_rollback(tm, reqid);
+		lka_report_smtp_tx_rollback(tm, reqid, msgid);
 		return;
 
 	case IMSG_SMTP_REPORT_PROTOCOL_CLIENT:
@@ -569,9 +570,10 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_msg(&m, imsg);
 		m_get_time(&m, &tm);
 		m_get_id(&m, &reqid);
+		m_get_u32(&m, &msgid);
 		m_end(&m);
 
-		lka_report_mta_tx_rollback(tm, reqid);
+		lka_report_mta_tx_rollback(tm, reqid, msgid);
 		return;
 
 	case IMSG_MTA_REPORT_PROTOCOL_CLIENT:

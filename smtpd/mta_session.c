@@ -401,6 +401,8 @@ mta_free(struct mta_session *s)
 	struct mta_relay *relay;
 	struct mta_route *route;
 
+	mta_report_link_disconnect(s->id);
+
 	log_debug("debug: mta: %p: session done", s);
 
 	if (s->ready)
@@ -986,6 +988,7 @@ mta_response(struct mta_session *s, char *line)
 			mta_enter_state(s, MTA_RSET);
 			return;
 		}
+		mta_report_tx_begin(s->id, 0);
 		mta_enter_state(s, MTA_RCPT);
 		break;
 
@@ -1000,6 +1003,7 @@ mta_response(struct mta_session *s, char *line)
 
 		s->currevp = TAILQ_NEXT(s->currevp, entry);
 		if (line[0] == '2') {
+			mta_report_tx_envelope(s->id, 0, 0);
 			s->failures = 0;
 			/*
 			 * this host is up, reschedule envelopes that
@@ -1045,6 +1049,7 @@ mta_response(struct mta_session *s, char *line)
 			    s->failures == s->relay->limits->max_failures_per_session) {
 					mta_flush_task(s, IMSG_MTA_DELIVERY_TEMPFAIL,
 					    "Too many consecutive errors, closing connection", 0, 1);
+					mta_report_tx_rollback(s->id, 0);
 					mta_enter_state(s, MTA_QUIT);
 					break;
 				}
@@ -1055,6 +1060,7 @@ mta_response(struct mta_session *s, char *line)
 			if (TAILQ_EMPTY(&s->task->envelopes)) {
 				mta_flush_task(s, IMSG_MTA_DELIVERY_OK,
 				    "No envelope", 0, 0);
+				mta_report_tx_rollback(s->id, 0);
 				mta_enter_state(s, MTA_RSET);
 				break;
 			}
@@ -1076,11 +1082,17 @@ mta_response(struct mta_session *s, char *line)
 		else
 			delivery = IMSG_MTA_DELIVERY_TEMPFAIL;
 		mta_flush_task(s, delivery, line, 0, 0);
+		mta_report_tx_rollback(s->id, 0);
 		mta_enter_state(s, MTA_RSET);
 		break;
 
 	case MTA_LMTP_EOM:
 	case MTA_EOM:
+		if (line[0] == '2')
+			mta_report_tx_commit(s->id, 0, 0);
+		else
+			mta_report_tx_rollback(s->id, 0);
+
 		if (line[0] == '2') {
 			delivery = IMSG_MTA_DELIVERY_OK;
 			s->msgtried = 0;
@@ -1138,6 +1150,9 @@ mta_io(struct io *io, int evt, void *arg)
 	size_t			 len;
 	const char		*error;
 	int			 cont;
+	struct sockaddr		 sa_src;
+	struct sockaddr		 sa_dst;
+	socklen_t		 sa_len;
 
 	log_trace(TRACE_IO, "mta: %p: %s %s", s, io_strevent(evt),
 	    io_strio(io));
@@ -1145,6 +1160,14 @@ mta_io(struct io *io, int evt, void *arg)
 	switch (evt) {
 
 	case IO_CONNECTED:
+		getsockname(io_fileno(io), &sa_src, &sa_len);
+		getpeername(io_fileno(io), &sa_dst, &sa_len);
+
+		mta_report_link_connect(s->id,
+		    "",
+		    (const struct sockaddr_storage *)&sa_src,
+		    (const struct sockaddr_storage *)&sa_dst);
+
 		log_info("%016"PRIx64" mta connected", s->id);
 		if (s->use_smtps) {
 			io_set_write(io);
@@ -1160,6 +1183,8 @@ mta_io(struct io *io, int evt, void *arg)
 		log_info("%016"PRIx64" mta tls ciphers=%s",
 		    s->id, ssl_to_text(io_ssl(s->io)));
 		s->flags |= MTA_TLS;
+
+		mta_report_link_tls(s->id, ssl_to_text(io_ssl(s->io)));
 
 		if (mta_verify_certificate(s)) {
 			io_pause(s->io, IO_IN);
@@ -1181,6 +1206,7 @@ mta_io(struct io *io, int evt, void *arg)
 		}
 
 		log_trace(TRACE_MTA, "mta: %p: <<< %s", s, line);
+		mta_report_protocol_server(s->id, line);
 
 		if ((error = parse_smtp_response(line, len, &msg, &cont))) {
 			mta_error(s, "Bad response: %s", error);
@@ -1358,6 +1384,8 @@ mta_send(struct mta_session *s, char *fmt, ...)
 	if ((len = vasprintf(&p, fmt, ap)) == -1)
 		fatal("mta: vasprintf");
 	va_end(ap);
+
+	mta_report_protocol_client(s->id, p);
 
 	log_trace(TRACE_MTA, "mta: %p: >>> %s", s, p);
 

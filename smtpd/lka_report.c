@@ -138,11 +138,11 @@ lka_report_smtp_tx_commit(time_t tm, uint64_t reqid, uint32_t msgid, size_t msgs
 }
 
 void
-lka_report_smtp_tx_rollback(time_t tm, uint64_t reqid)
+lka_report_smtp_tx_rollback(time_t tm, uint64_t reqid, uint32_t msgid)
 {
 	report_smtp_broadcast("report|%d|%zd|smtp-in|tx-rollback|"
-	    "%016"PRIx64"\n",
-	    PROTOCOL_VERSION, tm, reqid);
+	    "%016"PRIx64"|%08x\n",
+	    PROTOCOL_VERSION, tm, reqid, msgid);
 }
 
 void
@@ -232,11 +232,11 @@ lka_report_mta_tx_commit(time_t tm, uint64_t reqid, uint32_t msgid, size_t msgsz
 }
 
 void
-lka_report_mta_tx_rollback(time_t tm, uint64_t reqid)
+lka_report_mta_tx_rollback(time_t tm, uint64_t reqid, uint32_t msgid)
 {
 	report_mta_broadcast("report|%d|%zd|smtp-out|tx-rollback|"
-	    "%016"PRIx64"\n",
-	    PROTOCOL_VERSION, tm, reqid);
+	    "%016"PRIx64"|%08x\n",
+	    PROTOCOL_VERSION, tm, reqid, msgid);
 }
 
 void
