@@ -120,6 +120,7 @@ struct smtp_tx {
 	size_t			 datain;
 	size_t			 odatalen;
 	FILE			*ofile;
+	FILE			*ffile;
 	struct rfc5322_parser	*parser;
 	int			 rcvcount;
 	int			 has_date;
@@ -188,10 +189,13 @@ static void smtp_tx_create_message(struct smtp_tx *);
 static void smtp_tx_mail_from(struct smtp_tx *, const char *);
 static void smtp_tx_rcpt_to(struct smtp_tx *, const char *);
 static void smtp_tx_open_message(struct smtp_tx *);
+static void smtp_tx_open_filter(struct smtp_tx *);
 static void smtp_tx_commit(struct smtp_tx *);
 static void smtp_tx_rollback(struct smtp_tx *);
 static int  smtp_tx_dataline(struct smtp_tx *, const char *);
 static void smtp_message_fd(struct smtp_tx *, int);
+static void smtp_filter_fd(struct smtp_tx *, int);
+static void smtp_message_begin(struct smtp_tx *);
 static void smtp_message_end(struct smtp_tx *);
 static int  smtp_message_printf(struct smtp_tx *, const char *, ...);
 
@@ -258,6 +262,7 @@ static struct tree wait_queue_commit;
 static struct tree wait_ssl_init;
 static struct tree wait_ssl_verify;
 static struct tree wait_filters;
+static struct tree wait_filter_fd;
 
 static void
 header_append_domain_buffer(char *buffer, char *domain, size_t len)
@@ -539,6 +544,7 @@ smtp_session_init(void)
 		tree_init(&wait_ssl_init);
 		tree_init(&wait_ssl_verify);
 		tree_init(&wait_filters);
+		tree_init(&wait_filter_fd);
 		init = 1;
 	}
 }
@@ -725,6 +731,29 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 		log_debug("smtp: %p: fd %d from queue", s, imsg->fd);
 
 		smtp_message_fd(s->tx, imsg->fd);
+		smtp_tx_open_filter(s->tx);
+		return;
+
+	case IMSG_SMTP_FILTER_OPEN:
+		m_msg(&m, imsg);
+		m_get_id(&m, &reqid);
+		m_get_int(&m, &success);
+		m_end(&m);
+
+		s = tree_xpop(&wait_filter_fd, reqid);
+		if (!success || imsg->fd == -1) {
+			if (imsg->fd != -1)
+				close(imsg->fd);
+			smtp_reply(s, "421 %s: Temporary Error",
+			    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
+			smtp_enter_state(s, STATE_QUIT);
+			return;
+		}
+
+		log_debug("smtp: %p: fd %d from lka", s, imsg->fd);
+
+		smtp_filter_fd(s->tx, imsg->fd);
+		smtp_message_begin(s->tx);
 		return;
 
 	case IMSG_QUEUE_ENVELOPE_SUBMIT:
@@ -1674,6 +1703,11 @@ smtp_proceed_rollback(struct smtp_session *s, const char *args)
 	fclose(tx->ofile);
 	tx->ofile = NULL;
 
+	if (tx->ffile) {
+		fclose(tx->ffile);
+		tx->ffile = NULL;
+	}
+
 	smtp_tx_rollback(tx);
 	smtp_tx_free(tx);
 	smtp_enter_state(s, STATE_HELO);
@@ -2212,6 +2246,8 @@ smtp_tx_free(struct smtp_tx *tx)
 
 	if (tx->ofile)
 		fclose(tx->ofile);
+	if (tx->ffile)
+		fclose(tx->ffile);
 
 	tx->session->tx = NULL;
 
@@ -2381,6 +2417,23 @@ smtp_tx_open_message(struct smtp_tx *tx)
 }
 
 static void
+smtp_tx_open_filter(struct smtp_tx *tx)
+{
+	m_create(p_lka, IMSG_SMTP_FILTER_OPEN, 0, 0, -1);
+	m_add_id(p_lka, tx->session->id);
+	m_close(p_lka);
+	tree_xset(&wait_filter_fd, tx->session->id, tx->session);
+}
+
+static void
+smtp_tx_close_filter(struct smtp_tx *tx)
+{
+	m_create(p_lka, IMSG_SMTP_FILTER_CLOSE, 0, 0, -1);
+	m_add_id(p_lka, tx->session->id);
+	m_close(p_lka);
+}
+
+static void
 smtp_tx_commit(struct smtp_tx *tx)
 {
 	m_create(p_queue, IMSG_SMTP_MESSAGE_COMMIT, 0, 0, -1);
@@ -2389,6 +2442,7 @@ smtp_tx_commit(struct smtp_tx *tx)
 	m_close(p_queue);
 	tree_xset(&wait_queue_commit, tx->session->id, tx->session);
 	smtp_report_tx_commit(tx->session->id, tx->msgid, tx->odatalen);
+	smtp_tx_close_filter(tx);
 }
 
 static void
@@ -2398,6 +2452,7 @@ smtp_tx_rollback(struct smtp_tx *tx)
 	m_add_msgid(p_queue, tx->msgid);
 	m_close(p_queue);
 	smtp_report_tx_rollback(tx->session->id);
+	smtp_tx_close_filter(tx);
 }
 
 static int
@@ -2537,7 +2592,6 @@ static void
 smtp_message_fd(struct smtp_tx *tx, int fd)
 {
 	struct smtp_session *s;
-	X509 *x;
 
 	s = tx->session;
 
@@ -2548,8 +2602,33 @@ smtp_message_fd(struct smtp_tx *tx, int fd)
 		smtp_reply(s, "421 %s: Temporary Error",
 		    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
 		smtp_enter_state(s, STATE_QUIT);
-		return;
 	}
+}
+
+static void
+smtp_filter_fd(struct smtp_tx *tx, int fd)
+{
+	struct smtp_session *s;
+
+	s = tx->session;
+
+	log_debug("smtp: %p: message fd %d", s, fd);
+
+	if ((tx->ffile = fdopen(fd, "r+")) == NULL) {
+		close(fd);
+		smtp_reply(s, "421 %s: Temporary Error",
+		    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
+		smtp_enter_state(s, STATE_QUIT);
+	}
+}
+
+static void
+smtp_message_begin(struct smtp_tx *tx)
+{
+	struct smtp_session *s;
+	X509 *x;
+
+	s = tx->session;
 
 	smtp_message_printf(tx, "Received: ");
 	if (!(s->listener->flags & F_MASK_SOURCE)) {
@@ -2608,6 +2687,11 @@ smtp_message_end(struct smtp_tx *tx)
 	fclose(tx->ofile);
 	tx->ofile = NULL;
 
+	if (tx->ffile) {
+		fclose(tx->ffile);
+		tx->ffile = NULL;
+	}
+	
 	switch(tx->error) {
 	case TX_OK:
 		smtp_tx_commit(tx);

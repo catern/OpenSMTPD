@@ -356,7 +356,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		table_open_all(env);
 
 		/* revoke proc & exec */
-		if (pledge("stdio rpath inet dns getpw recvfd",
+		if (pledge("stdio rpath inet dns getpw recvfd sendfd",
 			NULL) == -1)
 			err(1, "pledge");
 
@@ -512,6 +512,22 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 
 		lka_filter(reqid, filter_phase, hostname, filter_param);
 		return;
+
+	case IMSG_SMTP_FILTER_OPEN:
+		m_msg(&m, imsg);
+		m_get_id(&m, &reqid);
+		m_end(&m);
+
+		lka_filter_open(reqid);
+		return;
+
+	case IMSG_SMTP_FILTER_CLOSE:
+		m_msg(&m, imsg);
+		m_get_id(&m, &reqid);
+		m_end(&m);
+
+		lka_filter_close(reqid);
+		return;
 	}
 
 	errx(1, "lka_imsg: unexpected %s imsg", imsg_to_str(imsg->hdr.type));
@@ -578,7 +594,7 @@ lka(void)
 	mproc_disable(p_pony);
 
 	/* proc & exec will be revoked before serving requests */
-	if (pledge("stdio rpath inet dns getpw recvfd proc exec", NULL) == -1)
+	if (pledge("stdio rpath inet dns getpw recvfd sendfd proc exec", NULL) == -1)
 		err(1, "pledge");
 
 	event_dispatch();

@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "smtpd.h"
 #include "log.h"
@@ -68,6 +69,9 @@ static struct filter_exec {
 	{ FILTER_COMMIT,    	"commit",      	filter_exec_notimpl },
 };
 
+static int		inited;
+static struct tree	filter_sessions;
+
 void
 lka_filter(uint64_t reqid, enum filter_phase phase, const char *hostname, const char *param)
 {
@@ -102,6 +106,43 @@ proceed:
 	filter_proceed(reqid);
 }
 
+void
+lka_filter_open(uint64_t reqid)
+{
+	int	fd = -1;
+	int	sp[2];
+	FILE	*fp;
+	
+	if (!inited) {
+		tree_init(&filter_sessions);
+		inited = 1;
+	}
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, sp) == -1)
+		goto end;
+
+	if ((fp = fdopen(sp[0], "r+")) == NULL) {
+		close(sp[0]);
+		close(sp[1]);
+		goto end;
+	}
+
+	tree_xset(&filter_sessions, reqid, (void *)fp);
+	fd = sp[1];
+
+end:
+	m_create(p_pony, IMSG_SMTP_FILTER_OPEN, 0, 0, fd);
+	m_add_id(p_pony, reqid);
+	m_add_int(p_pony, fd != -1 ? 1 : 0);
+	m_close(p_pony);
+}
+
+void
+lka_filter_close(uint64_t reqid)
+{
+	FILE *fp = tree_xpop(&filter_sessions, reqid);
+	fclose(fp);
+}
 
 int
 lka_filter_response(uint64_t reqid, const char *response, const char *param)
