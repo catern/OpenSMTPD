@@ -120,7 +120,7 @@ struct smtp_tx {
 	size_t			 datain;
 	size_t			 odatalen;
 	FILE			*ofile;
-	FILE			*ffile;
+	struct io		*filter_io;
 	struct rfc5322_parser	*parser;
 	int			 rcvcount;
 	int			 has_date;
@@ -193,11 +193,13 @@ static void smtp_tx_open_filter(struct smtp_tx *);
 static void smtp_tx_commit(struct smtp_tx *);
 static void smtp_tx_rollback(struct smtp_tx *);
 static int  smtp_tx_dataline(struct smtp_tx *, const char *);
+static int  smtp_tx_dataline2(struct smtp_tx *, const char *);
 static void smtp_message_fd(struct smtp_tx *, int);
 static void smtp_filter_fd(struct smtp_tx *, int);
 static void smtp_message_begin(struct smtp_tx *);
 static void smtp_message_end(struct smtp_tx *);
 static int  smtp_message_printf(struct smtp_tx *, const char *, ...);
+static int  smtp_filter_printf(struct smtp_tx *, const char *, ...);
 
 static int  smtp_check_rset(struct smtp_session *, const char *);
 static int  smtp_check_helo(struct smtp_session *, const char *);
@@ -227,6 +229,7 @@ static void smtp_proceed_quit(struct smtp_session *, const char *);
 static void smtp_proceed_commit(struct smtp_session *, const char *);
 static void smtp_proceed_rollback(struct smtp_session *, const char *);
 
+static void filter_session_io(struct io *io, int evt, void *arg);
 
 static struct {
 	int code;
@@ -1076,7 +1079,8 @@ smtp_io(struct io *io, int evt, void *arg)
 		}
 
 		if (eom) {
-			smtp_filter_phase(FILTER_COMMIT, s, NULL);
+			// should we pause IN ?
+			//io_pause(io, IO_PAUSE_IN);
 			return;
 		}
 
@@ -1703,9 +1707,9 @@ smtp_proceed_rollback(struct smtp_session *s, const char *args)
 	fclose(tx->ofile);
 	tx->ofile = NULL;
 
-	if (tx->ffile) {
-		fclose(tx->ffile);
-		tx->ffile = NULL;
+	if (tx->filter_io) {
+		io_free(tx->filter_io);
+		tx->filter_io = NULL;
 	}
 
 	smtp_tx_rollback(tx);
@@ -2246,8 +2250,8 @@ smtp_tx_free(struct smtp_tx *tx)
 
 	if (tx->ofile)
 		fclose(tx->ofile);
-	if (tx->ffile)
-		fclose(tx->ffile);
+	if (tx->filter_io)
+		io_free(tx->filter_io);
 
 	tx->session->tx = NULL;
 
@@ -2455,13 +2459,46 @@ smtp_tx_rollback(struct smtp_tx *tx)
 	smtp_tx_close_filter(tx);
 }
 
-static int
+int
 smtp_tx_dataline(struct smtp_tx *tx, const char *line)
+{
+	log_trace(TRACE_SMTP, "<<< [MSG] %s", line);
+
+	if (!strcmp(line, ".")) {
+		smtp_report_protocol_client(tx->session->id, ".");
+		log_trace(TRACE_SMTP, "<<< [EOM]");
+		if (tx->error)
+			return 1;
+		line = NULL;
+	}
+	else {
+		/* ignore data line if an error is set */
+		if (tx->error)
+			return 0;
+
+		/* escape lines starting with a '.' */
+		if (line[0] == '.')
+			line += 1;
+
+		/* account for newline */
+		tx->datain += strlen(line) + 1;
+		if (tx->datain > env->sc_maxsize) {
+			tx->error = TX_ERROR_SIZE;
+			return 0;
+		}
+	}
+
+	io_printf(tx->filter_io, "%s\r\n", line ? line : ".");
+	return line ? 0 : 1;
+}
+
+static int
+smtp_tx_dataline2(struct smtp_tx *tx, const char *line)
 {
 	struct rfc5322_result res;
 	int r;
 
-	log_trace(TRACE_SMTP, "<<< [MSG] %s", line);
+	log_trace(TRACE_SMTP, "<<< [MSG2] %s", line);
 
 	if (!strcmp(line, ".")) {
 		smtp_report_protocol_client(tx->session->id, ".");
@@ -2614,11 +2651,35 @@ smtp_filter_fd(struct smtp_tx *tx, int fd)
 
 	log_debug("smtp: %p: message fd %d", s, fd);
 
-	if ((tx->ffile = fdopen(fd, "r+")) == NULL) {
-		close(fd);
-		smtp_reply(s, "421 %s: Temporary Error",
-		    esc_code(ESC_STATUS_TEMPFAIL, ESC_OTHER_MAIL_SYSTEM_STATUS));
-		smtp_enter_state(s, STATE_QUIT);
+	tx->filter_io = io_new();
+	io_set_fd(tx->filter_io, fd);
+	io_set_callback(tx->filter_io, filter_session_io, tx);
+}
+
+static void
+filter_session_io(struct io *io, int evt, void *arg)
+{
+	struct smtp_tx		*tx = arg;
+	char			*line = NULL;
+	ssize_t			 len;
+
+	log_trace(TRACE_IO, "filter session: %p: %s %s", tx, io_strevent(evt),
+	    io_strio(io));
+
+	switch (evt) {
+	case IO_DATAIN:
+	    nextline:
+		line = io_getline(tx->filter_io, &len);
+		/* No complete line received */
+		if (line == NULL)
+			return;
+
+		if (smtp_tx_dataline2(tx, line)) {
+			smtp_filter_phase(FILTER_COMMIT, tx->session, NULL);
+			return;
+		}
+
+		goto nextline;
 	}
 }
 
@@ -2630,14 +2691,14 @@ smtp_message_begin(struct smtp_tx *tx)
 
 	s = tx->session;
 
-	smtp_message_printf(tx, "Received: ");
+	smtp_filter_printf(tx, "Received: ");
 	if (!(s->listener->flags & F_MASK_SOURCE)) {
-		smtp_message_printf(tx, "from %s (%s [%s])",
+		smtp_filter_printf(tx, "from %s (%s [%s])",
 		    s->helo,
 		    s->hostname,
 		    ss_to_text(&s->ss));
 	}
-	smtp_message_printf(tx, "\n\tby %s (%s) with %sSMTP%s%s id %08x",
+	smtp_filter_printf(tx, "\n\tby %s (%s) with %sSMTP%s%s id %08x",
 	    s->smtpname,
 	    SMTPD_NAME,
 	    s->flags & SF_EHLO ? "E" : "",
@@ -2647,7 +2708,7 @@ smtp_message_begin(struct smtp_tx *tx)
 
 	if (s->flags & SF_SECURE) {
 		x = SSL_get_peer_certificate(io_ssl(s->io));
-		smtp_message_printf(tx, " (%s:%s:%d:%s)",
+		smtp_filter_printf(tx, " (%s:%s:%d:%s)",
 		    SSL_get_version(io_ssl(s->io)),
 		    SSL_get_cipher_name(io_ssl(s->io)),
 		    SSL_get_cipher_bits(io_ssl(s->io), NULL),
@@ -2655,20 +2716,20 @@ smtp_message_begin(struct smtp_tx *tx)
 		X509_free(x);
 
 		if (s->listener->flags & F_RECEIVEDAUTH) {
-			smtp_message_printf(tx, " auth=%s",
+			smtp_filter_printf(tx, " auth=%s",
 			    s->username[0] ? "yes" : "no");
 			if (s->username[0])
-				smtp_message_printf(tx, " user=%s", s->username);
+				smtp_filter_printf(tx, " user=%s", s->username);
 		}
 	}
 
 	if (tx->rcptcount == 1) {
-		smtp_message_printf(tx, "\n\tfor <%s@%s>",
+		smtp_filter_printf(tx, "\n\tfor <%s@%s>",
 		    tx->evp.rcpt.user,
 		    tx->evp.rcpt.domain);
 	}
 
-	smtp_message_printf(tx, ";\n\t%s\n", time_to_text(time(&tx->time)));
+	smtp_filter_printf(tx, ";\n\t%s\n", time_to_text(time(&tx->time)));
 
 	smtp_enter_state(s, STATE_BODY);
 	smtp_reply(s, "354 Enter mail, end with \".\""
@@ -2687,9 +2748,9 @@ smtp_message_end(struct smtp_tx *tx)
 	fclose(tx->ofile);
 	tx->ofile = NULL;
 
-	if (tx->ffile) {
-		fclose(tx->ffile);
-		tx->ffile = NULL;
+	if (tx->filter_io) {
+		io_free(tx->filter_io);
+		tx->filter_io = NULL;
 	}
 	
 	switch(tx->error) {
@@ -2729,6 +2790,29 @@ smtp_message_end(struct smtp_tx *tx)
 	smtp_tx_rollback(tx);
 	smtp_tx_free(tx);
 	smtp_enter_state(s, STATE_HELO);
+}
+
+static int
+smtp_filter_printf(struct smtp_tx *tx, const char *fmt, ...)
+{
+	va_list	ap;
+	int	len;
+
+	if (tx->error)
+		return -1;
+
+	va_start(ap, fmt);
+	len = io_vprintf(tx->filter_io, fmt, ap);
+	va_end(ap);
+
+	if (len < 0) {
+		log_warn("smtp-in: session %016"PRIx64": vfprintf", tx->session->id);
+		tx->error = TX_ERROR_IO;
+	}
+	else
+		tx->odatalen += len;
+
+	return len;
 }
 
 static int

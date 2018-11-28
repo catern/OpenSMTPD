@@ -69,6 +69,10 @@ static struct filter_exec {
 	{ FILTER_COMMIT,    	"commit",      	filter_exec_notimpl },
 };
 
+struct filter_session {
+	struct io      *io;
+};
+
 static int		inited;
 static struct tree	filter_sessions;
 
@@ -106,28 +110,52 @@ proceed:
 	filter_proceed(reqid);
 }
 
+static void
+filter_session_io(struct io *io, int evt, void *arg)
+{
+	struct filter_session	*fs = arg;
+	char			*line = NULL;
+	ssize_t			 len;
+
+	log_trace(TRACE_IO, "filter session: %p: %s %s", fs, io_strevent(evt),
+	    io_strio(io));
+
+	switch (evt) {
+	case IO_DATAIN:
+	    nextline:
+		line = io_getline(fs->io, &len);
+		/* No complete line received */
+		if (line == NULL)
+			return;
+
+		io_printf(fs->io, "%s\r\n", line);
+
+		goto nextline;
+	}
+}
+
 void
 lka_filter_open(uint64_t reqid)
 {
 	int	fd = -1;
 	int	sp[2];
-	FILE	*fp;
+	struct filter_session	*fs;
 	
 	if (!inited) {
 		tree_init(&filter_sessions);
 		inited = 1;
 	}
 
+	fs = xcalloc(1, sizeof *fs);
+	fs->io = io_new();
+
 	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, sp) == -1)
 		goto end;
 
-	if ((fp = fdopen(sp[0], "r+")) == NULL) {
-		close(sp[0]);
-		close(sp[1]);
-		goto end;
-	}
+	io_set_fd(fs->io, sp[0]);
+	io_set_callback(fs->io, filter_session_io, fs);
+	tree_xset(&filter_sessions, reqid, fs);
 
-	tree_xset(&filter_sessions, reqid, (void *)fp);
 	fd = sp[1];
 
 end:
@@ -140,8 +168,10 @@ end:
 void
 lka_filter_close(uint64_t reqid)
 {
-	FILE *fp = tree_xpop(&filter_sessions, reqid);
-	fclose(fp);
+	struct filter_session *fs = tree_xpop(&filter_sessions, reqid);
+
+	io_free(fs->io);
+	free(fs);
 }
 
 int
