@@ -65,6 +65,7 @@ static struct filter_exec {
 	{ FILTER_QUIT,    	"quit",		filter_exec_notimpl },
 	{ FILTER_RCPT_TO,    	"rcpt-to",	filter_exec_rcpt_to },
 	{ FILTER_RSET,    	"rset",		filter_exec_notimpl },
+	{ FILTER_COMMIT,    	"commit",      	filter_exec_notimpl },
 };
 
 void
