@@ -356,7 +356,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		table_open_all(env);
 
 		/* revoke proc & exec */
-		if (pledge("stdio rpath inet dns getpw recvfd",
+		if (pledge("stdio rpath inet dns getpw recvfd sendfd",
 			NULL) == -1)
 			err(1, "pledge");
 
@@ -611,7 +611,7 @@ lka(void)
 	mproc_disable(p_pony);
 
 	/* proc & exec will be revoked before serving requests */
-	if (pledge("stdio rpath inet dns getpw recvfd proc exec", NULL) == -1)
+	if (pledge("stdio rpath inet dns getpw recvfd sendfd proc exec", NULL) == -1)
 		err(1, "pledge");
 
 	event_dispatch();
