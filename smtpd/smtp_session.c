@@ -1584,6 +1584,9 @@ smtp_filter_data_end(struct smtp_session *s)
 	if (s->tx->filter == NULL)
 		return;
 
+	io_free(s->tx->filter);
+	s->tx->filter = NULL;
+
 	m_create(p_lka, IMSG_SMTP_FILTER_DATA_END, 0, 0, -1);
 	m_add_id(p_lka, s->id);
 	m_close(p_lka);
