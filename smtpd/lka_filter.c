@@ -40,6 +40,8 @@ static void	filter_rewrite(uint64_t, const char *);
 static void	filter_reject(uint64_t, const char *);
 static void	filter_disconnect(uint64_t, const char *);
 
+static void	filter_data(uint64_t reqid, const char *line);
+
 static void	filter_write(const char *, uint64_t, const char *, const char *, const char *);
 
 static int	filter_exec_notimpl(uint64_t, struct filter_rule *, const char *, const char *);
@@ -74,6 +76,7 @@ static struct tree	sessions;
 static int		inited;
 
 struct filter_session {
+	uint64_t	id;
 	struct io	*io;
 };
 
@@ -88,7 +91,8 @@ lka_filter_begin(uint64_t reqid)
 	}
 
 	fs = xcalloc(1, sizeof (struct filter_session));
-	tree_xset(&sessions, reqid, fs);
+	fs->id = reqid;
+	tree_xset(&sessions, fs->id, fs);
 }
 
 void
@@ -152,7 +156,8 @@ filter_session_io(struct io *io, int evt, void *arg)
 		if (line == NULL)
 			return;
 
-		io_printf(fs->io, "%s\r\n", line);
+		log_debug("[%s]", line);
+		filter_data(fs->id, line);
 
 		goto nextline;
 	}
@@ -190,6 +195,15 @@ lka_filter_protocol(uint64_t reqid, enum filter_phase phase, const char *hostnam
 
 proceed:
 	filter_proceed(reqid);
+}
+
+static void
+filter_data(uint64_t reqid, const char *line)
+{
+	struct filter_session *fs;
+
+	fs = tree_xget(&sessions, reqid);
+	io_printf(fs->io, "%s\r\n", line);
 }
 
 
