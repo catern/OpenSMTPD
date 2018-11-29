@@ -1541,6 +1541,9 @@ smtp_query_filters(enum filter_phase phase, struct smtp_session *s, const char *
 static void
 smtp_filter_begin(struct smtp_session *s)
 {
+	if (!(s->listener->flags & F_FILTERED))
+		return;
+
 	m_create(p_lka, IMSG_SMTP_FILTER_BEGIN, 0, 0, -1);
 	m_add_id(p_lka, s->id);
 	m_close(p_lka);
@@ -1549,6 +1552,9 @@ smtp_filter_begin(struct smtp_session *s)
 static void
 smtp_filter_end(struct smtp_session *s)
 {
+	if (!(s->listener->flags & F_FILTERED))
+		return;
+
 	m_create(p_lka, IMSG_SMTP_FILTER_END, 0, 0, -1);
 	m_add_id(p_lka, s->id);
 	m_close(p_lka);
@@ -1557,6 +1563,9 @@ smtp_filter_end(struct smtp_session *s)
 static void
 smtp_filter_data_begin(struct smtp_session *s)
 {
+	if (!(s->listener->flags & F_FILTERED))
+		return;
+
 	m_create(p_lka, IMSG_SMTP_FILTER_DATA_BEGIN, 0, 0, -1);
 	m_add_id(p_lka, s->id);
 	m_close(p_lka);
@@ -1566,6 +1575,9 @@ smtp_filter_data_begin(struct smtp_session *s)
 static void
 smtp_filter_data_end(struct smtp_session *s)
 {
+	if (!(s->listener->flags & F_FILTERED))
+		return;
+
 	if (s->tx->filter == NULL)
 		return;
 
