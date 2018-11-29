@@ -158,7 +158,6 @@ filter_session_io(struct io *io, int evt, void *arg)
 		if (line == NULL)
 			return;
 
-		log_debug("[%s]", line);
 		filter_data(fs->id, line);
 
 		goto nextline;
