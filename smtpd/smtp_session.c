@@ -1086,9 +1086,9 @@ smtp_io(struct io *io, int evt, void *arg)
 		}
 
 		if (eom) {
+			io_set_write(io);
 			if (s->tx->filter == NULL)
 				smtp_tx_eom(s->tx);
-			io_set_write(io);
 			return;
 		}
 

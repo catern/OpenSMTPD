@@ -94,17 +94,20 @@ lka_filter_begin(uint64_t reqid)
 void
 lka_filter_end(uint64_t reqid)
 {
-	struct filter_session	*fs = tree_xpop(&sessions, reqid);
+	struct filter_session	*fs;
 
+	fs = tree_xpop(&sessions, reqid);
 	free(fs);
 }
 
 void
 lka_filter_data_begin(uint64_t reqid)
 {
-	struct filter_session  *fs = tree_xget(&sessions, reqid);
+	struct filter_session  *fs;
 	int	sp[2];
 	int	fd = -1;
+
+	fs = tree_xget(&sessions, reqid);
 
 	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, sp) == -1)
 		goto end;
@@ -124,8 +127,9 @@ end:
 void
 lka_filter_data_end(uint64_t reqid)
 {
-	struct filter_session	*fs = tree_xget(&sessions, reqid);
+	struct filter_session	*fs;
 
+	fs = tree_xget(&sessions, reqid);
 	io_free(fs->io);
 	fs->io = NULL;
 }
