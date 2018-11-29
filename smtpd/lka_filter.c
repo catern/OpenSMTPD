@@ -43,6 +43,7 @@ static void	filter_disconnect(uint64_t, const char *);
 static void	filter_data(uint64_t reqid, const char *line);
 
 static void	filter_write(const char *, uint64_t, const char *, const char *, const char *);
+static void	filter_write_dataline(const char *, uint64_t, const char *);
 
 static int	filter_exec_notimpl(uint64_t, struct filter_rule *, const char *, const char *);
 static int	filter_exec_connected(uint64_t, struct filter_rule *, const char *, const char *);
@@ -52,6 +53,7 @@ static int	filter_exec_rcpt_to(uint64_t, struct filter_rule *, const char *, con
 
 static void	filter_session_io(struct io *, int, void *);
 
+#define	PROTOCOL_VERSION	1
 
 static struct filter_exec {
 	enum filter_phase	phase;
@@ -227,17 +229,39 @@ static void
 filter_write(const char *name, uint64_t reqid, const char *phase, const char *hostname, const char *param)
 {
 	int	n;
+	int	tm;
 
+	tm = time(NULL);
 	if (strcmp(phase, "connected") == 0 ||
 	    strcmp(phase, "helo") == 0 ||
 	    strcmp(phase, "ehlo") == 0)
 		n = io_printf(lka_proc_get_io(name),
-		    "filter-request|smtp-in|%s|%016"PRIx64"|%s|%s\n",
+		    "filter|%d|%zd|smtp-in|%s|%016"PRIx64"|%s|%s\n",
+		    PROTOCOL_VERSION,
+		    tm,
 		    phase, reqid, hostname, param);
 	else
 		n = io_printf(lka_proc_get_io(name),
-		    "filter-request|smtp-in|%s|%016"PRIx64"|%s\n",
+		    "filter|%d|%zd|smtp-in|%s|%016"PRIx64"|%s\n",
+		    PROTOCOL_VERSION,
+		    tm,
 		    phase, reqid, param);
+	if (n == -1)
+		fatalx("failed to write to processor");
+}
+
+static void
+filter_write_dataline(const char *name, uint64_t reqid, const char *line)
+{
+	int	n;
+	time_t	tm;
+
+	tm = time(NULL);
+	n = io_printf(lka_proc_get_io(name),
+	    "filter|%d|%zd|smtp-in|data-line|"
+	    "%016"PRIx64"|%s\n",
+	    PROTOCOL_VERSION,
+	    tm, reqid, line);
 	if (n == -1)
 		fatalx("failed to write to processor");
 }
