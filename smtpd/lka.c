@@ -526,7 +526,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		m_get_string(&m, &filter_param);
 		m_end(&m);
 
-		lka_filter_phase(reqid, filter_phase, hostname, filter_param);
+		lka_filter_protocol(reqid, filter_phase, hostname, filter_param);
 		return;
 
 	case IMSG_SMTP_FILTER_DATA_BEGIN:

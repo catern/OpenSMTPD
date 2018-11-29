@@ -159,7 +159,7 @@ filter_session_io(struct io *io, int evt, void *arg)
 }
 
 void
-lka_filter_phase(uint64_t reqid, enum filter_phase phase, const char *hostname, const char *param)
+lka_filter_protocol(uint64_t reqid, enum filter_phase phase, const char *hostname, const char *param)
 {
 	struct filter_rule	*rule;
 	uint8_t			i;
