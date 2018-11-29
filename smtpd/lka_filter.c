@@ -52,6 +52,8 @@ static int	filter_exec_mail_from(uint64_t, struct filter_rule *, const char *, c
 static int	filter_exec_rcpt_to(uint64_t, struct filter_rule *, const char *, const char *);
 
 static void	filter_session_io(struct io *, int, void *);
+int		lka_filter_process_response(const char *, const char *);
+static void	filter_data_next(uint64_t, const char *, const char *);
 
 #define	PROTOCOL_VERSION	1
 
@@ -164,6 +166,66 @@ filter_session_io(struct io *io, int evt, void *arg)
 	}
 }
 
+int
+lka_filter_process_response(const char *name, const char *line)
+{
+	uint64_t reqid;
+	char buffer[LINE_MAX];
+	char *ep = NULL;
+	char *kind = NULL;
+	char *qid = NULL;
+	char *response = NULL;
+	char *parameter = NULL;
+
+	(void)strlcpy(buffer, line, sizeof buffer);
+	if ((ep = strchr(buffer, '|')) == NULL)
+		return 0;
+	*ep = 0;
+
+	kind = buffer;
+	if (strcmp(kind, "filter-result") != 0 &&
+	    strcmp(kind, "filter-dataline") != 0)
+		return 1;
+
+	qid = ep+1;
+	if ((ep = strchr(qid, '|')) == NULL)
+		return 0;
+	*ep = 0;
+
+	reqid = strtoull(qid, &ep, 16);
+	if (qid[0] == '\0' || *ep != '\0')
+		return 0;
+	if (errno == ERANGE && reqid == ULONG_MAX)
+		return 0;
+
+	response = ep+1;
+	if ((ep = strchr(response, '|'))) {
+		parameter = ep + 1;
+		*ep = 0;
+	}
+
+	if (strcmp(kind, "filter-dataline") == 0) {
+		filter_data_next(reqid, name, response);
+		return 1;
+	}
+
+	if (strcmp(response, "proceed") != 0 &&
+	    strcmp(response, "reject") != 0 &&
+	    strcmp(response, "disconnect") != 0 &&
+	    strcmp(response, "rewrite") != 0)
+		return 0;
+
+	if (strcmp(response, "proceed") == 0 &&
+	    parameter)
+		return 0;
+
+	if (strcmp(response, "proceed") != 0 &&
+	    parameter == NULL)
+		return 0;
+
+	return lka_filter_response(reqid, response, parameter);
+}
+
 void
 lka_filter_protocol(uint64_t reqid, enum filter_phase phase, const char *hostname, const char *param)
 {
@@ -202,9 +264,31 @@ static void
 filter_data(uint64_t reqid, const char *line)
 {
 	struct filter_session *fs;
+	struct filter_rule *rule;
 
 	fs = tree_xget(&sessions, reqid);
-	io_printf(fs->io, "%s\r\n", line);
+
+	rule = TAILQ_FIRST(&env->sc_filter_rules[FILTER_DATA_LINE]);
+	filter_write_dataline(rule->proc, reqid, line);
+}
+
+static void
+filter_data_next(uint64_t reqid, const char *name, const char *line)
+{
+	struct filter_session *fs;
+	struct filter_rule *rule;
+
+	fs = tree_xget(&sessions, reqid);
+
+	TAILQ_FOREACH(rule, &env->sc_filter_rules[FILTER_DATA_LINE], entry) {
+		if (strcmp(rule->proc, name) == 0)
+			break;
+	}
+
+	if ((rule = TAILQ_NEXT(rule, entry)) == NULL)
+		io_printf(fs->io, "%s\r\n", line);
+	else
+		filter_write_dataline(rule->proc, reqid, line);
 }
 
 
