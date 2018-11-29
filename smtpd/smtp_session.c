@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtp_session.c,v 1.352 2018/11/08 13:21:00 gilles Exp $	*/
+/*	$OpenBSD: smtp_session.c,v 1.355 2018/11/29 12:48:16 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -165,7 +165,7 @@ struct smtp_session {
 
 static int smtp_mailaddr(struct mailaddr *, char *, int, char **, const char *);
 static void smtp_session_init(void);
-static int smtp_lookup_servername(struct smtp_session *);
+static void smtp_lookup_servername(struct smtp_session *);
 static void smtp_getnameinfo_cb(void *, int, const char *, const char *);
 static void smtp_connected(struct smtp_session *);
 static void smtp_send_banner(struct smtp_session *);
@@ -592,8 +592,7 @@ smtp_session(struct listener *listener, int sock,
 		if (!strcmp(hostname, "localhost"))
 			s->flags |= SF_BOUNCE;
 		(void)strlcpy(s->hostname, hostname, sizeof(s->hostname));
-		if (smtp_lookup_servername(s))
-			smtp_connected(s);
+		smtp_lookup_servername(s);
 	} else {
 		resolver_getnameinfo((struct sockaddr *)&s->ss, 0,
 		    smtp_getnameinfo_cb, s);
@@ -614,8 +613,7 @@ smtp_getnameinfo_cb(void *arg, int gaierrno, const char *host, const char *serv)
 
 	(void)strlcpy(s->hostname, host, sizeof(s->hostname));
 
-	if (smtp_lookup_servername(s))
-		smtp_connected(s);
+	smtp_lookup_servername(s);
 }
 
 void
@@ -1079,8 +1077,7 @@ smtp_io(struct io *io, int evt, void *arg)
 		}
 
 		if (eom) {
-			// should we pause IN ?
-			//io_pause(io, IO_PAUSE_IN);
+			io_set_write(io);
 			return;
 		}
 
@@ -1694,7 +1691,6 @@ static void
 smtp_proceed_commit(struct smtp_session *s, const char *args)
 {
 	smtp_message_end(s->tx);
-	io_set_write(s->io);
 }
 
 static void
@@ -1715,7 +1711,6 @@ smtp_proceed_rollback(struct smtp_session *s, const char *args)
 	smtp_tx_rollback(tx);
 	smtp_tx_free(tx);
 	smtp_enter_state(s, STATE_HELO);
-	io_set_write(s->io);
 }
 
 static void
@@ -1829,7 +1824,7 @@ abort:
 	smtp_enter_state(s, STATE_HELO);
 }
 
-static int
+static void
 smtp_lookup_servername(struct smtp_session *s)
 {
 	struct sockaddr		*sa;
@@ -1849,10 +1844,11 @@ smtp_lookup_servername(struct smtp_session *s)
 			m_add_sockaddr(p_lka, sa);
 			m_close(p_lka);
 			tree_xset(&wait_lka_helo, s->id, s);
-			return 0;
+			return;
 		}
 	}
-	return 1;
+
+	smtp_connected(s);
 }
 
 static void
@@ -1875,18 +1871,16 @@ smtp_connected(struct smtp_session *s)
 		return;
 	}
 
-	if (s->listener->flags & F_SMTPS) {
-		smtp_tls_init(s);
-		return;
-	}
-
 	smtp_filter_phase(FILTER_CONNECTED, s, ss_to_text(&s->ss));
 }
 
 static void
 smtp_proceed_connected(struct smtp_session *s)
 {
-	smtp_send_banner(s);
+	if (s->listener->flags & F_SMTPS)
+		smtp_tls_init(s);
+	else
+		smtp_send_banner(s);
 }
 
 static void
