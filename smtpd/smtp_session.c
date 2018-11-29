@@ -2694,7 +2694,7 @@ filter_session_io(struct io *io, int evt, void *arg)
 		if (line == NULL)
 			return;
 
-		if (smtp_tx_filtered_dataline(tx, line)) {
+		if (smtp_tx_dataline(tx, line)) {
 			smtp_tx_eom(tx);
 			return;
 		}
