@@ -192,10 +192,14 @@ static void smtp_tx_open_message(struct smtp_tx *);
 static void smtp_tx_commit(struct smtp_tx *);
 static void smtp_tx_rollback(struct smtp_tx *);
 static int  smtp_tx_dataline(struct smtp_tx *, const char *);
+static int  smtp_tx_filtered_dataline(struct smtp_tx *, const char *);
+static int  smtp_tx_filtered_dataline_resume(struct smtp_tx *, const char *);
+static void smtp_tx_eom(struct smtp_tx *);
 static void smtp_filter_fd(struct smtp_tx *, int);
 static int  smtp_message_fd(struct smtp_tx *, int);
 static void smtp_message_begin(struct smtp_tx *);
 static void smtp_message_end(struct smtp_tx *);
+static int  smtp_filter_printf(struct smtp_tx *, const char *, ...);
 static int  smtp_message_printf(struct smtp_tx *, const char *, ...);
 
 static int  smtp_check_rset(struct smtp_session *, const char *);
@@ -1064,7 +1068,9 @@ smtp_io(struct io *io, int evt, void *arg)
 		/* Message body */
 		eom = 0;
 		if (s->state == STATE_BODY) {
-			eom = smtp_tx_dataline(s->tx, line);
+			eom = (s->tx->filter == NULL) ?
+			    smtp_tx_dataline(s->tx, line) :
+			    smtp_tx_filtered_dataline(s->tx, line);
 			if (eom == 0)
 				goto nextline;
 		}
@@ -1081,7 +1087,8 @@ smtp_io(struct io *io, int evt, void *arg)
 		}
 
 		if (eom) {
-			smtp_filter_phase(FILTER_COMMIT, s, NULL);
+			if (s->tx->filter == NULL)
+				smtp_tx_eom(s->tx);
 			io_set_write(io);
 			return;
 		}
@@ -1553,6 +1560,7 @@ smtp_filter_data_begin(struct smtp_session *s)
 	m_create(p_lka, IMSG_SMTP_FILTER_DATA_BEGIN, 0, 0, -1);
 	m_add_id(p_lka, s->id);
 	m_close(p_lka);
+	tree_xset(&wait_filter_fd, s->id, s);
 }
 
 static void
@@ -2605,6 +2613,173 @@ smtp_tx_dataline(struct smtp_tx *tx, const char *line)
 }
 
 static int
+smtp_tx_filtered_dataline(struct smtp_tx *tx, const char *line)
+{
+	if (!strcmp(line, ".")) {
+		if (tx->error)
+			return 1;
+		line = NULL;
+	}
+	else {
+		/* ignore data line if an error is set */
+		if (tx->error)
+			return 0;
+
+		/* escape lines starting with a '.' */
+		if (line[0] == '.')
+			line += 1;
+
+		/* account for newline */
+		tx->datain += strlen(line) + 1;
+		if (tx->datain > env->sc_maxsize) {
+			tx->error = TX_ERROR_SIZE;
+			return 0;
+		}
+	}
+	io_printf(tx->filter, "%s\r\n", line ? line : ".");
+	return line ? 0 : 1;
+}
+
+static int
+smtp_tx_filtered_dataline_resume(struct smtp_tx *tx, const char *line)
+{
+	struct rfc5322_result res;
+	int r;
+
+	log_trace(TRACE_SMTP, "<<< [MSG] %s", line);
+
+	if (!strcmp(line, ".")) {
+		smtp_report_protocol_client(tx->session->id, ".");
+		log_trace(TRACE_SMTP, "<<< [EOM]");
+		if (tx->error)
+			return 1;
+		line = NULL;
+	}
+	else {
+		/* ignore data line if an error is set */
+		if (tx->error)
+			return 0;
+
+		/* escape lines starting with a '.' */
+		if (line[0] == '.')
+			line += 1;
+
+		/* account for newline */
+		tx->datain += strlen(line) + 1;
+		if (tx->datain > env->sc_maxsize) {
+			tx->error = TX_ERROR_SIZE;
+			return 0;
+		}
+	}
+
+	if (rfc5322_push(tx->parser, line) == -1) {
+		log_warnx("failed to push dataline");
+		tx->error = TX_ERROR_INTERNAL;
+		return 0;
+	}
+
+	for(;;) {
+		r = rfc5322_next(tx->parser, &res);
+		switch (r) {
+		case -1:
+			if (errno == ENOMEM)
+				tx->error = TX_ERROR_INTERNAL;
+			else
+				tx->error = TX_ERROR_MALFORMED;
+			return 0;
+
+		case RFC5322_NONE:
+			/* Need more data */
+			return 0;
+
+		case RFC5322_HEADER_START:
+			/* ignore bcc */
+			if (!strcasecmp("Bcc", res.hdr))
+				continue;
+
+			if (!strcasecmp("To", res.hdr) ||
+			    !strcasecmp("Cc", res.hdr) ||
+			    !strcasecmp("From", res.hdr)) {
+				rfc5322_unfold_header(tx->parser);
+				continue;
+			}
+
+			if (!strcasecmp("Received", res.hdr)) {
+				if (++tx->rcvcount >= MAX_HOPS_COUNT) {
+					log_warnx("warn: loop detected");
+					tx->error = TX_ERROR_LOOP;
+					return 0;
+				}
+			}
+			else if (!tx->has_date && !strcasecmp("Date", res.hdr))
+				tx->has_date = 1;
+			else if (!tx->has_message_id &&
+			    !strcasecmp("Message-Id", res.hdr))
+				tx->has_message_id = 1;
+
+			smtp_message_printf(tx, "%s:%s\n", res.hdr, res.value);
+			break;
+
+		case RFC5322_HEADER_CONT:
+
+			if (!strcasecmp("Bcc", res.hdr) ||
+			    !strcasecmp("To", res.hdr) ||
+			    !strcasecmp("Cc", res.hdr) ||
+			    !strcasecmp("From", res.hdr))
+				continue;
+
+			smtp_message_printf(tx, "%s\n", res.value);
+			break;
+
+		case RFC5322_HEADER_END:
+			if (!strcasecmp("To", res.hdr) ||
+			    !strcasecmp("Cc", res.hdr) ||
+			    !strcasecmp("From", res.hdr))
+				header_domain_append_callback(tx, res.hdr,
+				    res.value);
+			break;
+
+		case RFC5322_END_OF_HEADERS:
+			if (tx->session->listener->local ||
+			    tx->session->listener->port == 587) {
+
+				if (!tx->has_date) {
+					log_debug("debug: %p: adding Date", tx);
+					smtp_message_printf(tx, "Date: %s\n",
+					    time_to_text(tx->time));
+				}
+
+				if (!tx->has_message_id) {
+					log_debug("debug: %p: adding Message-ID", tx);
+					smtp_message_printf(tx,
+					    "Message-ID: <%016"PRIx64"@%s>\n",
+					    generate_uid(),
+					    tx->session->listener->hostname);
+				}
+			}
+			break;
+
+		case RFC5322_BODY_START:
+		case RFC5322_BODY:
+			smtp_message_printf(tx, "%s\n", res.value);
+			break;
+
+		case RFC5322_END_OF_MESSAGE:
+			return 1;
+
+		default:
+			fatalx("%s", __func__);
+		}
+	}
+}
+
+static void
+smtp_tx_eom(struct smtp_tx *tx)
+{
+	smtp_filter_phase(FILTER_COMMIT, tx->session, NULL);
+}
+
+static int
 smtp_message_fd(struct smtp_tx *tx, int fd)
 {
 	struct smtp_session *s;
@@ -2641,10 +2816,10 @@ filter_session_io(struct io *io, int evt, void *arg)
 		if (line == NULL)
 			return;
 
-		//if (smtp_tx_dataline2(tx, line)) {
-		//smtp_filter_phase(FILTER_COMMIT, tx->session, NULL);
-		//return;
-		//}
+		if (smtp_tx_filtered_dataline_resume(tx, line)) {
+			smtp_tx_eom(tx);
+			return;
+		}
 
 		goto nextline;
 	}
@@ -2669,19 +2844,24 @@ smtp_message_begin(struct smtp_tx *tx)
 {
 	struct smtp_session *s;
 	X509 *x;
+	int	(*m_printf)(struct smtp_tx *, const char *, ...);
+
+	m_printf = smtp_message_printf;
+	if (tx->filter)
+		m_printf = smtp_filter_printf;
 
 	s = tx->session;
 
 	log_debug("smtp: %p: message begin", s);
 
-	smtp_message_printf(tx, "Received: ");
+	m_printf(tx, "Received: ");
 	if (!(s->listener->flags & F_MASK_SOURCE)) {
-		smtp_message_printf(tx, "from %s (%s [%s])",
+		m_printf(tx, "from %s (%s [%s])",
 		    s->helo,
 		    s->hostname,
 		    ss_to_text(&s->ss));
 	}
-	smtp_message_printf(tx, "\n\tby %s (%s) with %sSMTP%s%s id %08x",
+	m_printf(tx, "\n\tby %s (%s) with %sSMTP%s%s id %08x",
 	    s->smtpname,
 	    SMTPD_NAME,
 	    s->flags & SF_EHLO ? "E" : "",
@@ -2691,7 +2871,7 @@ smtp_message_begin(struct smtp_tx *tx)
 
 	if (s->flags & SF_SECURE) {
 		x = SSL_get_peer_certificate(io_ssl(s->io));
-		smtp_message_printf(tx, " (%s:%s:%d:%s)",
+		m_printf(tx, " (%s:%s:%d:%s)",
 		    SSL_get_version(io_ssl(s->io)),
 		    SSL_get_cipher_name(io_ssl(s->io)),
 		    SSL_get_cipher_bits(io_ssl(s->io), NULL),
@@ -2699,20 +2879,20 @@ smtp_message_begin(struct smtp_tx *tx)
 		X509_free(x);
 
 		if (s->listener->flags & F_RECEIVEDAUTH) {
-			smtp_message_printf(tx, " auth=%s",
+			m_printf(tx, " auth=%s",
 			    s->username[0] ? "yes" : "no");
 			if (s->username[0])
-				smtp_message_printf(tx, " user=%s", s->username);
+				m_printf(tx, " user=%s", s->username);
 		}
 	}
 
 	if (tx->rcptcount == 1) {
-		smtp_message_printf(tx, "\n\tfor <%s@%s>",
+		m_printf(tx, "\n\tfor <%s@%s>",
 		    tx->evp.rcpt.user,
 		    tx->evp.rcpt.domain);
 	}
 
-	smtp_message_printf(tx, ";\n\t%s\n", time_to_text(time(&tx->time)));
+	m_printf(tx, ";\n\t%s\n", time_to_text(time(&tx->time)));
 
 	smtp_enter_state(s, STATE_BODY);
 	smtp_reply(s, "354 Enter mail, end with \".\""
@@ -2768,6 +2948,29 @@ smtp_message_end(struct smtp_tx *tx)
 	smtp_tx_rollback(tx);
 	smtp_tx_free(tx);
 	smtp_enter_state(s, STATE_HELO);
+}
+
+static int
+smtp_filter_printf(struct smtp_tx *tx, const char *fmt, ...)
+{
+	va_list	ap;
+	int	len;
+
+	if (tx->error)
+		return -1;
+
+	va_start(ap, fmt);
+	len = io_vprintf(tx->filter, fmt, ap);
+	va_end(ap);
+
+	if (len < 0) {
+		log_warn("smtp-in: session %016"PRIx64": vfprintf", tx->session->id);
+		tx->error = TX_ERROR_IO;
+	}
+	else
+		tx->odatalen += len;
+
+	return len;
 }
 
 static int
