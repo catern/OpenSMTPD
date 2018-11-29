@@ -735,10 +735,14 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 		log_debug("smtp: %p: fd %d from queue", s, imsg->fd);
 
 		if (smtp_message_fd(s->tx, imsg->fd)) {
-			if (1 == 1)
+			if (TAILQ_FIRST(&env->sc_filter_rules[FILTER_DATA_LINE]) == NULL) {
+				log_debug("no data filter, bypassing");
 				smtp_message_begin(s->tx);
-			else
+			}
+			else {
+				log_debug("data filter, going through lka");
 				smtp_filter_data_begin(s);
+			}
 		}
 		return;
 
