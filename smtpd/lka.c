@@ -524,22 +524,6 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 		lka_report_smtp_link_disconnect("smtp-out", tm, reqid);
 		return;
 
-	case IMSG_SMTP_FILTER_BEGIN:
-		m_msg(&m, imsg);
-		m_get_id(&m, &reqid);
-		m_end(&m);
-
-		lka_filter_begin(reqid);
-		return;
-
-	case IMSG_SMTP_FILTER_END:
-		m_msg(&m, imsg);
-		m_get_id(&m, &reqid);
-		m_end(&m);
-
-		lka_filter_end(reqid);
-		return;
-
 	case IMSG_MTA_REPORT_LINK_TLS:
 		m_msg(&m, imsg);
 		m_get_time(&m, &tm);
