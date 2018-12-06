@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtp_session.c,v 1.357 2018/12/03 21:19:10 eric Exp $	*/
+/*	$OpenBSD: smtp_session.c,v 1.358 2018/12/06 12:09:50 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>

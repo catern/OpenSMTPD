@@ -1,4 +1,4 @@
-/*	$OpenBSD: pony.c,v 1.22 2018/11/03 13:42:24 gilles Exp $	*/
+/*	$OpenBSD: pony.c,v 1.23 2018/12/06 12:09:50 gilles Exp $	*/
 
 /*
  * Copyright (c) 2014 Gilles Chehade <gilles@poolp.org>
