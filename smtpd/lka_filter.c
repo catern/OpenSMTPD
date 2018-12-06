@@ -312,9 +312,9 @@ static void
 filter_write(const char *name, uint64_t reqid, const char *phase, const char *hostname, const char *param)
 {
 	int	n;
-	int	tm;
+	time_t	tm;
 
-	tm = time(NULL);
+	time(&tm);
 	if (strcmp(phase, "connected") == 0 ||
 	    strcmp(phase, "helo") == 0 ||
 	    strcmp(phase, "ehlo") == 0)
@@ -339,7 +339,7 @@ filter_write_dataline(const char *name, uint64_t reqid, const char *line)
 	int	n;
 	time_t	tm;
 
-	tm = time(NULL);
+	time(&tm);
 	n = io_printf(lka_proc_get_io(name),
 	    "filter|%d|%zd|smtp-in|data-line|"
 	    "%016"PRIx64"|%s\n",
