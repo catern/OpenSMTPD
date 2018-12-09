@@ -437,7 +437,7 @@ filter_check_fcrdns_connected(struct filter_rule *rule, int fcrdns)
 	int	ret = 0;
 
 	if (rule->fcrdns) {
-		ret = fcrdns == 1;
+		ret = fcrdns == 0;
 		ret = rule->not_fcrdns < 0 ? !ret : ret;
 	}
 	return ret;
