@@ -1061,6 +1061,9 @@ struct filter_rule {
 
 	int8_t				not_rdns;
 	int8_t				rdns;
+
+	int8_t				not_fcrdns;
+	int8_t				fcrdns;
 };
 
 enum filter_status {
