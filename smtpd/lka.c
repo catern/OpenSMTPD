@@ -89,6 +89,7 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 	const char		*ciphers;
 	const char		*address;
 	const char		*heloname;
+	const char		*filter_name;
 	struct sockaddr_storage	ss_src, ss_dest;
 	int                      filter_response;
 	int                      filter_phase;
@@ -601,13 +602,14 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 	case IMSG_FILTER_SMTP_BEGIN:
 		m_msg(&m, imsg);
 		m_get_id(&m, &reqid);
+		m_get_string(&m, &filter_name);
 		m_get_sockaddr(&m, (struct sockaddr *)&ss_src);
 		m_get_sockaddr(&m, (struct sockaddr *)&ss_dest);
 		m_get_string(&m, &rdns);
 		m_get_int(&m, &fcrdns);
 		m_end(&m);
 
-		lka_filter_begin(reqid, &ss_src, &ss_dest, rdns, fcrdns);
+		lka_filter_begin(reqid, filter_name, &ss_src, &ss_dest, rdns, fcrdns);
 		return;
 
 	case IMSG_FILTER_SMTP_END:
@@ -698,6 +700,8 @@ lka(void)
 
 	/* Ignore them until we get our config */
 	mproc_disable(p_pony);
+
+	lka_filter_init();
 
 	/* proc & exec will be revoked before serving requests */
 	if (pledge("stdio rpath inet dns getpw recvfd sendfd proc exec", NULL) == -1)

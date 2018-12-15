@@ -2516,8 +2516,12 @@ config_listener(struct listener *h,  struct listen_opts *lo)
 	if (lo->hostname == NULL)
 		lo->hostname = conf->sc_hostname;
 
-	if (lo->options & LO_FILTER)
+	if (lo->options & LO_FILTER) {
 		h->flags |= F_FILTERED;
+		(void)strlcpy(h->filter_name,
+		    lo->filtername,
+		    sizeof(h->filter_name));
+	}
 
 	h->pki_name[0] = '\0';
 

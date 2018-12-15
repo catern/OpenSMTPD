@@ -83,14 +83,40 @@ struct filter_session {
 	uint64_t	id;
 	struct io	*io;
 
+	char *filter_name;
 	struct sockaddr_storage ss_src;
 	struct sockaddr_storage ss_dest;
 	char *rdns;
 	int fcrdns;
 };
 
+struct filter {
+	TAILQ_HEAD(, filter_rule)	filter_rules[FILTER_PHASES_COUNT];
+};
+static struct dict filters;
+
+void
+lka_filter_init(void)
+{
+	struct filter *filter;
+	const char *name;
+	void *iter;
+	uint8_t i;
+
+	dict_init(&filters);
+
+	iter = NULL;
+	while (dict_iter(env->sc_filters_dict, &iter, &name, NULL)) {
+		filter = xcalloc(1, sizeof(*filter));
+		for (i = 0; i < nitems(filter->filter_rules); ++i)
+			TAILQ_INIT(&filter->filter_rules[i]);
+		dict_set(&filters, name, filter);
+	}
+}
+
 void
 lka_filter_begin(uint64_t reqid,
+    const char *filter_name,
     const struct sockaddr_storage *ss_src,
     const struct sockaddr_storage *ss_dest,
     const char *rdns,
@@ -105,6 +131,7 @@ lka_filter_begin(uint64_t reqid,
 
 	fs = xcalloc(1, sizeof (struct filter_session));
 	fs->id = reqid;
+	fs->filter_name = xstrdup(filter_name);
 	fs->ss_src = *ss_src;
 	fs->ss_dest = *ss_dest;
 	fs->rdns = xstrdup(rdns);
@@ -247,16 +274,23 @@ lka_filter_process_response(const char *name, const char *line)
 void
 lka_filter_protocol(uint64_t reqid, enum filter_phase phase, const char *param)
 {
-	struct filter_rule	*rule;
-	uint8_t			i;
+	struct filter_session *fs;
+	struct filter_rule *rule;
+	struct filter *filter;
+	uint8_t i;
 
+	fs = tree_xget(&sessions, reqid);
+	filter = dict_get(&filters, fs->filter_name);
+	
 	for (i = 0; i < nitems(filter_execs); ++i)
 		if (phase == filter_execs[i].phase)
 			break;
 	if (i == nitems(filter_execs))
 		goto proceed;
 
-	TAILQ_FOREACH(rule, &env->sc_filter_rules[phase], entry) {
+	log_debug("phase: %d, param: %s", phase, param);
+
+	TAILQ_FOREACH(rule, &filter->filter_rules[phase], entry) {
 		if (rule->proc) {
 			filter_write(rule->proc, reqid,
 			    filter_execs[i].phase_name, param);
@@ -283,10 +317,12 @@ filter_data(uint64_t reqid, const char *line)
 {
 	struct filter_session *fs;
 	struct filter_rule *rule;
+	struct filter *filter;
 
 	fs = tree_xget(&sessions, reqid);
+	filter = dict_get(&filters, fs->filter_name);
 
-	rule = TAILQ_FIRST(&env->sc_filter_rules[FILTER_DATA_LINE]);
+	rule = TAILQ_FIRST(&filter->filter_rules[FILTER_DATA_LINE]);
 	filter_write_dataline(rule->proc, reqid, line);
 }
 
@@ -295,10 +331,12 @@ filter_data_next(uint64_t reqid, const char *name, const char *line)
 {
 	struct filter_session *fs;
 	struct filter_rule *rule;
+	struct filter *filter;
 
 	fs = tree_xget(&sessions, reqid);
+	filter = dict_get(&filters, fs->filter_name);
 
-	TAILQ_FOREACH(rule, &env->sc_filter_rules[FILTER_DATA_LINE], entry) {
+	TAILQ_FOREACH(rule, &filter->filter_rules[FILTER_DATA_LINE], entry) {
 		if (strcmp(rule->proc, name) == 0)
 			break;
 	}

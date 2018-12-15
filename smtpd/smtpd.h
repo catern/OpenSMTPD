@@ -526,6 +526,7 @@ struct listener {
 	in_port_t		 port;
 	struct timeval		 timeout;
 	struct event		 ev;
+	char			 filter_name[PATH_MAX];
 	char			 pki_name[PATH_MAX];
 	char			 ca_name[PATH_MAX];
 	char			 tag[SMTPD_TAG_SIZE];
@@ -600,7 +601,7 @@ struct smtpd {
 	TAILQ_HEAD(listenerlist, listener)	*sc_listeners;
 
 	TAILQ_HEAD(rulelist, rule)		*sc_rules;
-	TAILQ_HEAD(filterrules, filter_rule)    sc_filter_rules[FILTER_PHASES_COUNT];
+
 
 	struct dict				*sc_filters_dict;
 	struct dict				*sc_dispatchers;
@@ -1355,7 +1356,8 @@ void lka_report_smtp_filter_response(const char *, struct timeval *, uint64_t,
 
 
 /* lka_filter.c */
-void lka_filter_begin(uint64_t, const struct sockaddr_storage *, const struct sockaddr_storage *, const char *, int);
+void lka_filter_init(void);
+void lka_filter_begin(uint64_t, const char *, const struct sockaddr_storage *, const struct sockaddr_storage *, const char *, int);
 void lka_filter_end(uint64_t);
 void lka_filter_protocol(uint64_t, enum filter_phase, const char *);
 void lka_filter_data_begin(uint64_t);
