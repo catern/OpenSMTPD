@@ -172,8 +172,8 @@ typedef struct {
 %}
 
 %token	ACTION ALIAS ANY ARROW AUTH AUTH_OPTIONAL
-%token	BACKUP BOUNCE
-%token	CA CERT CHROOT CIPHERS COMMIT COMPRESSION CONNECT
+%token	BACKUP BOUNCE BUILTIN
+%token	CA CERT CHAIN CHROOT CIPHERS COMMIT COMPRESSION CONNECT
 %token	CHECK_FCRDNS CHECK_RDNS CHECK_REGEX CHECK_TABLE
 %token	DATA DATA_LINE DHE DISCONNECT DOMAIN
 %token	EHLO ENABLE ENCRYPTION ERROR EXPAND_ONLY 
@@ -1244,28 +1244,75 @@ filter_phase_connect
 | filter_phase_commit
 ;
 
+
+filterel:
+STRING	{
+	struct filter_rule	*fr;
+
+	if ((fr = dict_get(conf->sc_filters_dict, $1)) == NULL) {
+		yyerror("no filter exist with that name: %s", $1);
+		free($1);
+		YYERROR;
+	}
+	if (fr->filter_type == FILTER_TYPE_CHAIN) {
+		yyerror("no filter chain allowed within a filter chain: %s", $1);
+		free($1);
+		YYERROR;
+	}
+	TAILQ_INSERT_TAIL(&filter_rule->chain, fr, entry);
+}
+;
+
+filter_list:
+filterel
+| filterel comma filter_list
+;
+
 filter:
-FILTER SMTP_IN {
+FILTER STRING PROC STRING {
+	if (dict_get(conf->sc_filters_dict, $2)) {
+		yyerror("filter already exists with that name: %s", $2);
+		free($2);
+		free($4);
+		YYERROR;
+	}
+	if (! dict_get(conf->sc_processors_dict, $4)) {
+		yyerror("no processor exist with that name: %s", $4);
+		free($4);
+		YYERROR;
+	}
+
 	filter_rule = xcalloc(1, sizeof *filter_rule);
-} filter_phase {
-	TAILQ_INSERT_TAIL(&conf->sc_filter_rules[filter_rule->phase], filter_rule, entry);
+	filter_rule->filter_type = FILTER_TYPE_PROC;
+	dict_set(conf->sc_filters_dict, $2, filter_rule);
 	filter_rule = NULL;
 }
-| FILTER SMTP_IN ON STRING {
-	if (! dict_get(conf->sc_processors_dict, $4)) {
-		yyerror("no processor exist with that name: %s", $4);
-		free($4);
+|
+FILTER STRING BUILTIN {
+	if (dict_get(conf->sc_filters_dict, $2)) {
+		yyerror("filter already exists with that name: %s", $2);
+		free($2);
 		YYERROR;
 	}
-	dict_set(conf->sc_smtp_reporters_dict, $4, (void *)~0);
+	filter_rule = xcalloc(1, sizeof *filter_rule);
+	filter_rule->filter_type = FILTER_TYPE_BUILTIN;
+	dict_set(conf->sc_filters_dict, $2, filter_rule);
+} filter_phase {
+	filter_rule = NULL;
 }
-| FILTER SMTP_OUT ON STRING {
-	if (! dict_get(conf->sc_processors_dict, $4)) {
-		yyerror("no processor exist with that name: %s", $4);
-		free($4);
+|
+FILTER STRING CHAIN {
+	if (dict_get(conf->sc_filters_dict, $2)) {
+		yyerror("filter already exists with that name: %s", $2);
+		free($2);
 		YYERROR;
 	}
-	dict_set(conf->sc_mta_reporters_dict, $4, (void *)~0);
+	filter_rule = xcalloc(1, sizeof *filter_rule);
+	filter_rule->filter_type = FILTER_TYPE_CHAIN;
+	TAILQ_INIT(&filter_rule->chain);
+} '{' filter_list '}' {
+	dict_set(conf->sc_filters_dict, $2, filter_rule);
+	filter_rule = NULL;
 }
 ;
 
@@ -1409,12 +1456,19 @@ limits_scheduler: opt_limit_scheduler limits_scheduler
 		;
 
 
-opt_sock_listen : FILTER {
+opt_sock_listen : FILTER STRING {
 			if (listen_opts.options & LO_FILTER) {
 				yyerror("filter already specified");
+				free($2);
+				YYERROR;
+			}
+			if (dict_get(conf->sc_filters_dict, $2) == NULL) {
+				yyerror("no filter exist with that name: %s", $2);
+				free($2);
 				YYERROR;
 			}
 			listen_opts.options |= LO_FILTER;
+			listen_opts.filtername = $2;
 		}
 		| MASK_SRC {
 			if (config_lo_mask_source(&listen_opts)) {
@@ -1470,12 +1524,18 @@ opt_if_listen : INET4 {
 			}
 			listen_opts.port = $2;
 		}
-		| FILTER			{
+		| FILTER STRING			{
 			if (listen_opts.options & LO_FILTER) {
 				yyerror("filter already specified");
 				YYERROR;
 			}
+			if (dict_get(conf->sc_filters_dict, $2) == NULL) {
+				yyerror("no filter exist with that name: %s", $2);
+				free($2);
+				YYERROR;
+			}
 			listen_opts.options |= LO_FILTER;
+			listen_opts.filtername = $2;
 		}
 		| SMTPS				{
 			if (listen_opts.options & LO_SSL) {
@@ -1818,8 +1878,10 @@ lookup(char *s)
 		{ "auth-optional",     	AUTH_OPTIONAL },
 		{ "backup",		BACKUP },
 		{ "bounce",		BOUNCE },
+		{ "builtin",		BUILTIN },
 		{ "ca",			CA },
 		{ "cert",		CERT },
+		{ "chain",		CHAIN },
 		{ "check-fcrdns",      	CHECK_FCRDNS },
 		{ "check-rdns",		CHECK_RDNS },
 		{ "check-regex",	CHECK_REGEX },

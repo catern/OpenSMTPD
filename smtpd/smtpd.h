@@ -602,6 +602,7 @@ struct smtpd {
 	TAILQ_HEAD(rulelist, rule)		*sc_rules;
 	TAILQ_HEAD(filterrules, filter_rule)    sc_filter_rules[FILTER_PHASES_COUNT];
 
+	struct dict				*sc_filters_dict;
 	struct dict				*sc_dispatchers;
 	struct dispatcher			*sc_dispatcher_bounce;
 
@@ -1039,14 +1040,22 @@ struct processor {
 	const char		       *chroot;
 };
 
+enum filter_type {
+	FILTER_TYPE_BUILTIN,
+	FILTER_TYPE_PROC,
+	FILTER_TYPE_CHAIN,
+};
+
 struct filter_rule {
 	TAILQ_ENTRY(filter_rule)        entry;
 
+	enum filter_type		filter_type;
 	enum filter_phase               phase;
 	char                           *reject;
 	char                           *disconnect;
 	char                           *rewrite;
 	char                           *proc;
+	TAILQ_HEAD(_filterrules, filter_rule)	chain;
 
 	int8_t                          not_table;
 	struct table                   *table;
