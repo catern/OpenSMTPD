@@ -37,6 +37,12 @@
 
 #define	PROTOCOL_VERSION	1
 
+void
+lka_report_register_hook(const char *name, const char *hook)
+{
+	log_debug("registering report hook: %s", hook);
+}
+
 static void
 report_smtp_broadcast(const char *direction, struct timeval *tv, const char *format, ...)
 {

@@ -42,6 +42,7 @@ static struct dict		processors;
 struct processor_instance {
 	char			*name;
 	struct io		*io;
+	int			 ready;
 };
 
 static void	processor_io(struct io *, int, void *);
@@ -76,6 +77,29 @@ lka_proc_get_io(const char *name)
 }
 
 static void
+processor_register(const char *name, const char *line)
+{
+	struct processor_instance *processor;
+
+	processor = dict_xget(&processors, name);
+
+	if (strcasecmp(line, "register|ready") == 0) {
+		processor->ready = 1;
+		return;
+	}
+
+	if (strncasecmp(line, "register|report|", 16) == 0) {
+		lka_report_register_hook(name, line+16);
+		return;
+	}
+
+	if (strncasecmp(line, "register|filter|", 16) == 0) {
+		lka_filter_register_hook(name, line+16);
+		return;
+	}
+}
+
+static void
 processor_io(struct io *io, int evt, void *arg)
 {
 	const char		*name = arg;
@@ -90,7 +114,9 @@ processor_io(struct io *io, int evt, void *arg)
 		if (line == NULL)
 			return;
 
-		if (! lka_filter_process_response(name, line))
+		if (strncasecmp("register|", line, 9) == 0)
+			processor_register(name, line);
+		else if (! lka_filter_process_response(name, line))
 			fatalx("misbehaving filter");
 
 		goto nextline;

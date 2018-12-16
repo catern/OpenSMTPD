@@ -1337,6 +1337,7 @@ struct io *lka_proc_get_io(const char *);
 
 
 /* lka_report.c */
+void lka_report_register_hook(const char *, const char *);
 void lka_report_smtp_link_connect(const char *, struct timeval *, uint64_t, const char *, int,
     const struct sockaddr_storage *, const struct sockaddr_storage *);
 void lka_report_smtp_link_disconnect(const char *, struct timeval *, uint64_t);
@@ -1356,6 +1357,7 @@ void lka_report_smtp_filter_response(const char *, struct timeval *, uint64_t,
 
 
 /* lka_filter.c */
+void lka_filter_register_hook(const char *, const char *);
 void lka_filter_init(void);
 void lka_filter_begin(uint64_t, const char *, const struct sockaddr_storage *, const struct sockaddr_storage *, const char *, int);
 void lka_filter_end(uint64_t);

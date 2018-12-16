@@ -96,6 +96,12 @@ struct filter {
 static struct dict filters;
 
 void
+lka_filter_register_hook(const char *name, const char *hook)
+{
+	log_debug("registering filter hook: %s", hook);
+}
+
+void
 lka_filter_init(void)
 {
 	struct filter *filter;
@@ -281,14 +287,12 @@ lka_filter_protocol(uint64_t reqid, enum filter_phase phase, const char *param)
 
 	fs = tree_xget(&sessions, reqid);
 	filter = dict_get(&filters, fs->filter_name);
-	
+
 	for (i = 0; i < nitems(filter_execs); ++i)
 		if (phase == filter_execs[i].phase)
 			break;
 	if (i == nitems(filter_execs))
 		goto proceed;
-
-	log_debug("phase: %d, param: %s", phase, param);
 
 	TAILQ_FOREACH(rule, &filter->filter_rules[phase], entry) {
 		if (rule->proc) {
