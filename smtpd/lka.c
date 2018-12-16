@@ -701,6 +701,7 @@ lka(void)
 	/* Ignore them until we get our config */
 	mproc_disable(p_pony);
 
+	lka_report_init();
 	lka_filter_init();
 
 	/* proc & exec will be revoked before serving requests */
