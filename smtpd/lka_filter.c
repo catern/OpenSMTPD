@@ -57,6 +57,14 @@ static void	filter_data_next(uint64_t, const char *, const char *);
 
 #define	PROTOCOL_VERSION	1
 
+struct filter_proc {
+	TAILQ_ENTRY(filter_proc)	entries;
+	const char		       *name;
+};
+TAILQ_HEAD(filters, filter_proc);
+
+static struct dict	smtp_in;
+
 static struct filter_exec {
 	enum filter_phase	phase;
 	const char	       *phase_name;
@@ -91,33 +99,58 @@ struct filter_session {
 };
 
 struct filter {
-	TAILQ_HEAD(, filter_rule)	filter_rules[FILTER_PHASES_COUNT];
+	TAILQ_HEAD(, filter_rule)	filter_rules[nitems(filter_execs)];
 };
 static struct dict filters;
 
 void
-lka_filter_register_hook(const char *name, const char *hook)
-{
-	log_debug("registering filter hook: %s", hook);
-}
-
-void
 lka_filter_init(void)
 {
-	struct filter *filter;
-	const char *name;
-	void *iter;
-	uint8_t i;
+	void		*iter;
+	const char	*name;
+	struct filters	*tailq;
+	struct filter  	*filter;
+	struct filter_rule	*filter_rule;
+	size_t			 i;
 
 	dict_init(&filters);
 
 	iter = NULL;
-	while (dict_iter(env->sc_filters_dict, &iter, &name, NULL)) {
-		filter = xcalloc(1, sizeof(*filter));
-		for (i = 0; i < nitems(filter->filter_rules); ++i)
-			TAILQ_INIT(&filter->filter_rules[i]);
-		dict_set(&filters, name, filter);
+	while (dict_iter(env->sc_filters_dict, &iter, &name, &filter_rule)) {
+		log_debug("### will reconstruct %s : %d : %p",
+		    name, filter_rule->filter_type, filter_rule);
 	}
+}
+
+void
+lka_filter_register_hook(const char *name, const char *hook)
+{
+	struct dict		*subsystem;
+	//struct filter_proc	*rp;
+	//struct filters		*tailq;
+	//void *iter;
+	size_t	i;
+
+	if (strncasecmp(hook, "smtp-in|", 8) == 0) {
+		subsystem = &smtp_in;
+		hook += 8;
+	}
+	else
+		return;
+
+	log_debug("registering filter hook: %s for proc %s", hook, name);
+	/*
+	for (i = 0; i < nitems(smtp_events); i++)
+		if (strcmp(hook, smtp_events[i].event) == 0)
+			break;
+	if (i == nitems(smtp_events))
+		return;
+
+	tailq = dict_get(subsystem, hook);
+	rp = xcalloc(1, sizeof *rp);
+	rp->name = xstrdup(name);
+	TAILQ_INSERT_TAIL(tailq, rp, entries);
+	*/
 }
 
 void
