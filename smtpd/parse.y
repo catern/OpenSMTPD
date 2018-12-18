@@ -1248,7 +1248,8 @@ filter_phase_connect
 
 filterel:
 STRING	{
-	struct filter_config	*fr;
+	struct filter_config   *fr;
+	size_t			i;
 
 	if ((fr = dict_get(conf->sc_filters_dict, $1)) == NULL) {
 		yyerror("no filter exist with that name: %s", $1);
@@ -1260,6 +1261,15 @@ STRING	{
 		free($1);
 		YYERROR;
 	}
+
+	for (i = 0; i < filter_config->chain_size; i++) {
+		if (strcmp(filter_config->chain[i], $1) == 0) {
+			yyerror("no filter allowed twice within a filter chain: %s", $1);
+			free($1);
+			YYERROR;
+		}
+	}
+
 	filter_config->chain_size += 1;
 	filter_config->chain = reallocarray(filter_config->chain, filter_config->chain_size, sizeof(char *));
 	if (filter_config->chain == NULL)

@@ -402,6 +402,6 @@ lka_report_smtp_filter_response(const char *direction, struct timeval *tv, uint6
 	}
 
 	report_smtp_broadcast(direction, tv, "filter-response",
-	    "%016"PRIx64"|%s|%s|%s\n",
-	    reqid, phase_name, response_name, param ? param : "");
+	    "%016"PRIx64"|%s|%s%s%s\n",
+	    reqid, phase_name, response_name, param ? "|" : "", param ? param : "");
 }

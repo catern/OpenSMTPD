@@ -42,19 +42,19 @@ static void	filter_disconnect(uint64_t, const char *);
 
 static void	filter_data(uint64_t reqid, const char *line);
 
-static void	filter_write(const char *, uint64_t, const char *, const char *);
-static void	filter_write_dataline(const char *, uint64_t, const char *);
 
 struct filter;
-static int	filter_exec_notimpl(uint64_t, struct filter *, const char *);
-static int	filter_exec_connected(uint64_t, struct filter *, const char *);
-static int	filter_exec_helo(uint64_t, struct filter *, const char *);
-static int	filter_exec_mail_from(uint64_t, struct filter *, const char *);
-static int	filter_exec_rcpt_to(uint64_t, struct filter *, const char *);
+static void	filter_write(struct filter *, uint64_t, uint64_t, const char *, const char *);
+static void	filter_write_dataline(struct filter *, uint64_t, uint64_t, const char *);
+static int	filter_exec_notimpl(struct filter *, uint64_t, const char *);
+static int	filter_exec_connected(struct filter *, uint64_t, const char *);
+static int	filter_exec_helo(struct filter *, uint64_t, const char *);
+static int	filter_exec_mail_from(struct filter *, uint64_t, const char *);
+static int	filter_exec_rcpt_to(struct filter *, uint64_t, const char *);
 
 static void	filter_session_io(struct io *, int, void *);
 int		lka_filter_process_response(const char *, const char *);
-static void	filter_data_next(uint64_t, const char *, const char *);
+static void	filter_data_next(uint64_t, uint64_t, const char *);
 
 #define	PROTOCOL_VERSION	1
 
@@ -63,7 +63,7 @@ static struct dict	smtp_in;
 static struct filter_exec {
 	enum filter_phase	phase;
 	const char	       *phase_name;
-	int		       (*func)(uint64_t, struct filter *, const char *);
+	int		       (*func)(struct filter *, uint64_t, const char *);
 } filter_execs[] = {
 	{ FILTER_CONNECTED,	"connected",	filter_exec_connected },
 	{ FILTER_HELO,		"helo",		filter_exec_helo },
@@ -98,6 +98,7 @@ struct filter_session {
 };
 
 struct filter {
+	uint64_t		id;
 	uint32_t		phases;
 	const char	       *name;
 	const char	       *proc;
@@ -109,6 +110,7 @@ static struct dict filters;
 
 struct filter_entry {
 	TAILQ_ENTRY(filter_entry)	entries;
+	uint64_t			id;
 	const char		       *name;	
 };
 
@@ -125,8 +127,7 @@ lka_filter_init(void)
 	const char	*name;
 	struct filter  	*filter;
 	struct filter_config	*filter_config;
-	struct filter_config	*filter_config_child;
-	int		i;
+	size_t		i;
 	
 	dict_init(&filters);
 	dict_init(&filter_chains);
@@ -218,6 +219,7 @@ lka_filter_ready(void)
 				for (j = 0; j < nitems(filter_execs); ++j) {
 					if (subfilter->phases & (1<<j)) {
 						filter_entry = xcalloc(1, sizeof *filter_entry);
+						filter_entry->id = generate_uid();
 						filter_entry->name = subfilter->name;
 						TAILQ_INSERT_TAIL(&filter_chain->chain[j],
 						    filter_entry, entries);
@@ -229,28 +231,13 @@ lka_filter_ready(void)
 		for (i = 0; i < nitems(filter_execs); ++i) {
 			if (filter->phases & (1<<i)) {
 				filter_entry = xcalloc(1, sizeof *filter_entry);
+				filter_entry->id = generate_uid();
 				filter_entry->name = filter_name;
 				TAILQ_INSERT_TAIL(&filter_chain->chain[i],
 				    filter_entry, entries);
 			}
 		}		
 	}
-
-#if 1
-	log_debug("FILTERING RULES");
-	iter = NULL;
-	while (dict_iter(&filter_chains, &iter, &filter_name, (void **)&filter_chain)) {
-		log_debug("\t%s:%p:", filter_name, filter_chain);
-		for (i = 0; i < nitems(filter_execs); ++i) {
-			if (TAILQ_FIRST(&filter_chain->chain[filter_execs[i].phase])) {
-				log_debug("\t\thook %s", filter_execs[i].phase_name);
-				TAILQ_FOREACH(filter_entry, &filter_chain->chain[filter_execs[i].phase], entries) {
-					log_debug("\t\t\t%s", filter_entry->name);
-				}
-			}
-		}
-	}
-#endif
 }
 
 void
@@ -350,6 +337,7 @@ int
 lka_filter_process_response(const char *name, const char *line)
 {
 	uint64_t reqid;
+	uint64_t token;
 	char buffer[LINE_MAX];
 	char *ep = NULL;
 	char *kind = NULL;
@@ -363,12 +351,22 @@ lka_filter_process_response(const char *name, const char *line)
 	*ep = 0;
 
 	kind = buffer;
-
 	if (strcmp(kind, "register") == 0)
 		return 1;
 
 	if (strcmp(kind, "filter-result") != 0 &&
 	    strcmp(kind, "filter-dataline") != 0)
+		return 0;
+
+	qid = ep+1;
+	if ((ep = strchr(qid, '|')) == NULL)
+		return 0;
+	*ep = 0;
+
+	token = strtoull(qid, &ep, 16);
+	if (qid[0] == '\0' || *ep != '\0')
+		return 0;
+	if (errno == ERANGE && token == ULONG_MAX)
 		return 0;
 
 	qid = ep+1;
@@ -389,7 +387,7 @@ lka_filter_process_response(const char *name, const char *line)
 	}
 
 	if (strcmp(kind, "filter-dataline") == 0) {
-		filter_data_next(reqid, name, response);
+		filter_data_next(token, reqid, response);
 		return 1;
 	}
 
@@ -433,12 +431,12 @@ lka_filter_protocol(uint64_t reqid, enum filter_phase phase, const char *param)
 	TAILQ_FOREACH(filter_entry, &filter_chain->chain[i], entries) {
 		filter = dict_get(&filters, filter_entry->name);
 		if (filter->proc) {
-			filter_write(filter->proc, reqid,
+			filter_write(filter, filter_entry->id, reqid,
 			    filter_execs[i].phase_name, param);
 			return;	/* deferred */
 		}
 
-		if (filter_execs[i].func(reqid, filter, param)) {
+		if (filter_execs[i].func(filter, reqid, param)) {
 			if (filter->config->rewrite)
 				filter_rewrite(reqid, filter->config->rewrite);
 			else if (filter->config->disconnect)
@@ -456,35 +454,46 @@ proceed:
 static void
 filter_data(uint64_t reqid, const char *line)
 {
-	struct filter_session *fs;
-	struct filter *filter;
+	struct filter_session	*fs;
+	struct filter_chain	*filter_chain;
+	struct filter_entry	*filter_entry;
+	struct filter		*filter;
 
 	fs = tree_xget(&sessions, reqid);
-	filter = dict_get(&filters, fs->filter_name);
+	filter_chain = dict_get(&filter_chains, fs->filter_name);
+	filter_entry = TAILQ_FIRST(&filter_chain->chain[FILTER_DATA_LINE]);
+	if (filter_entry == NULL) {
+		io_printf(fs->io, "%s\r\n", line);
+		return;
+	}
 
-	//rule = TAILQ_FIRST(&filter->filter_configs[FILTER_DATA_LINE]);
-	//filter_write_dataline(rule->proc, reqid, line);
+	filter = dict_get(&filters, filter_entry->name);
+	filter_write_dataline(filter, filter_entry->id, reqid, line);
 }
 
 static void
-filter_data_next(uint64_t reqid, const char *name, const char *line)
+filter_data_next(uint64_t token, uint64_t reqid, const char *line)
 {
-	struct filter_session *fs;
-	struct filter *filter;
+	struct filter_session	*fs;
+	struct filter_chain	*filter_chain;
+	struct filter_entry	*filter_entry;
+	struct filter		*filter;
 
 	fs = tree_xget(&sessions, reqid);
-	filter = dict_get(&filters, fs->filter_name);
-/*
-	TAILQ_FOREACH(rule, &filter->filter_configs[FILTER_DATA_LINE], entry) {
-		if (strcmp(rule->proc, name) == 0)
-			break;
-	}
+	filter_chain = dict_get(&filter_chains, fs->filter_name);
 
-	if ((rule = TAILQ_NEXT(rule, entry)) == NULL)
-		io_printf(fs->io, "%s\r\n", line);
-	else
-		filter_write_dataline(rule->proc, reqid, line);
-*/
+	TAILQ_FOREACH(filter_entry, &filter_chain->chain[FILTER_DATA_LINE], entries)
+	    if (filter_entry->id == token)
+		    break;
+	if (filter_entry == NULL)
+		fatalx("woops");
+
+	if ((filter_entry = TAILQ_NEXT(filter_entry, entries))) {
+		filter = dict_get(&filters, filter_entry->name);
+		filter_write_dataline(filter, filter_entry->id, reqid, line);
+		return;
+	}
+	io_printf(fs->io, "%s\r\n", line);
 }
 
 
@@ -505,7 +514,7 @@ lka_filter_response(uint64_t reqid, const char *response, const char *param)
 }
 
 static void
-filter_write(const char *name, uint64_t reqid, const char *phase, const char *param)
+filter_write(struct filter *filter, uint64_t token, uint64_t reqid, const char *phase, const char *param)
 {
 	int	n;
 	time_t	tm;
@@ -514,33 +523,33 @@ filter_write(const char *name, uint64_t reqid, const char *phase, const char *pa
 	fs = tree_xget(&sessions, reqid);
 	time(&tm);
 	if (strcmp(phase, "connected") == 0)
-		n = io_printf(lka_proc_get_io(name),
-		    "filter|%d|%zd|smtp-in|%s|%016"PRIx64"|%s|%s\n",
+		n = io_printf(lka_proc_get_io(filter->proc),
+		    "filter|%d|%zd|smtp-in|%s|%016"PRIx64"|%016"PRIx64"|%s|%s\n",
 		    PROTOCOL_VERSION,
 		    tm,
-		    phase, reqid, fs->rdns, param);
+		    phase, token, reqid, fs->rdns, param);
 	else
-		n = io_printf(lka_proc_get_io(name),
-		    "filter|%d|%zd|smtp-in|%s|%016"PRIx64"|%s\n",
+		n = io_printf(lka_proc_get_io(filter->proc),
+		    "filter|%d|%zd|smtp-in|%s|%016"PRIx64"|%016"PRIx64"|%s\n",
 		    PROTOCOL_VERSION,
 		    tm,
-		    phase, reqid, param);
+		    phase, token, reqid, param);
 	if (n == -1)
 		fatalx("failed to write to processor");
 }
 
 static void
-filter_write_dataline(const char *name, uint64_t reqid, const char *line)
+filter_write_dataline(struct filter *filter, uint64_t token, uint64_t reqid, const char *line)
 {
 	int	n;
 	time_t	tm;
 
 	time(&tm);
-	n = io_printf(lka_proc_get_io(name),
+	n = io_printf(lka_proc_get_io(filter->proc),
 	    "filter|%d|%zd|smtp-in|data-line|"
-	    "%016"PRIx64"|%s\n",
+	    "%016"PRIx64"|%016"PRIx64"|%s\n",
 	    PROTOCOL_VERSION,
-	    tm, reqid, line);
+	    tm, token, reqid, line);
 	if (n == -1)
 		fatalx("failed to write to processor");
 }
@@ -642,13 +651,13 @@ filter_check_rdns(struct filter *filter, const char *hostname)
 }
 
 static int
-filter_exec_notimpl(uint64_t reqid, struct filter *filter, const char *param)
+filter_exec_notimpl(struct filter *filter, uint64_t reqid, const char *param)
 {
 	return 0;
 }
 
 static int
-filter_exec_connected(uint64_t reqid, struct filter *filter, const char *param)
+filter_exec_connected(struct filter *filter, uint64_t reqid, const char *param)
 {
 	struct filter_session	*fs;
 
@@ -662,7 +671,7 @@ filter_exec_connected(uint64_t reqid, struct filter *filter, const char *param)
 }
 
 static int
-filter_exec_helo(uint64_t reqid, struct filter *filter, const char *param)
+filter_exec_helo(struct filter *filter, uint64_t reqid, const char *param)
 {
 	struct filter_session	*fs;
 
@@ -676,7 +685,7 @@ filter_exec_helo(uint64_t reqid, struct filter *filter, const char *param)
 }
 
 static int
-filter_exec_mail_from(uint64_t reqid, struct filter *filter, const char *param)
+filter_exec_mail_from(struct filter *filter, uint64_t reqid, const char *param)
 {
 	char	buffer[SMTPD_MAXMAILADDRSIZE];
 	struct filter_session	*fs;
@@ -695,7 +704,7 @@ filter_exec_mail_from(uint64_t reqid, struct filter *filter, const char *param)
 }
 
 static int
-filter_exec_rcpt_to(uint64_t reqid, struct filter *filter, const char *param)
+filter_exec_rcpt_to(struct filter *filter, uint64_t reqid, const char *param)
 {
 	char	buffer[SMTPD_MAXMAILADDRSIZE];
 	struct filter_session	*fs;
