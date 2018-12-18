@@ -1156,7 +1156,7 @@ filter_phase_check_table | filter_phase_check_regex | filter_phase_check_fcrdns 
 
 filter_phase_connect:
 CONNECT {
-	filter_config->phase = FILTER_CONNECTED;
+	filter_config->phase = FILTER_CONNECT;
 } filter_phase_connect_options filter_action_builtin
 ;
 

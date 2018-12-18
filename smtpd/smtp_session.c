@@ -1031,7 +1031,7 @@ smtp_session_imsg(struct mproc *p, struct imsg *imsg)
 			report_smtp_filter_response("smtp-in", s->id, s->filter_phase,
 			    filter_response,
 			    filter_param == s->filter_param ? NULL : filter_param);
-			if (s->filter_phase == FILTER_CONNECTED) {
+			if (s->filter_phase == FILTER_CONNECT) {
 				smtp_proceed_connected(s);
 				return;
 			}
@@ -1649,7 +1649,7 @@ smtp_filter_phase(enum filter_phase phase, struct smtp_session *s, const char *p
 		return;
 	}
 
-	if (s->filter_phase == FILTER_CONNECTED) {
+	if (s->filter_phase == FILTER_CONNECT) {
 		smtp_proceed_connected(s);
 		return;
 	}
@@ -1962,7 +1962,7 @@ smtp_connected(struct smtp_session *s)
 	    &s->listener->ss);
 
 	smtp_filter_begin(s);
-	smtp_filter_phase(FILTER_CONNECTED, s, ss_to_text(&s->ss));
+	smtp_filter_phase(FILTER_CONNECT, s, ss_to_text(&s->ss));
 }
 
 static void

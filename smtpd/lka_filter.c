@@ -47,7 +47,7 @@ struct filter;
 static void	filter_write(struct filter *, uint64_t, uint64_t, const char *, const char *);
 static void	filter_write_dataline(struct filter *, uint64_t, uint64_t, const char *);
 static int	filter_exec_notimpl(struct filter *, uint64_t, const char *);
-static int	filter_exec_connected(struct filter *, uint64_t, const char *);
+static int	filter_exec_connect(struct filter *, uint64_t, const char *);
 static int	filter_exec_helo(struct filter *, uint64_t, const char *);
 static int	filter_exec_mail_from(struct filter *, uint64_t, const char *);
 static int	filter_exec_rcpt_to(struct filter *, uint64_t, const char *);
@@ -58,14 +58,12 @@ static void	filter_data_next(uint64_t, uint64_t, const char *);
 
 #define	PROTOCOL_VERSION	1
 
-static struct dict	smtp_in;
-
 static struct filter_exec {
 	enum filter_phase	phase;
 	const char	       *phase_name;
 	int		       (*func)(struct filter *, uint64_t, const char *);
 } filter_execs[] = {
-	{ FILTER_CONNECTED,	"connected",	filter_exec_connected },
+	{ FILTER_CONNECT,	"connect",	filter_exec_connect },
 	{ FILTER_HELO,		"helo",		filter_exec_helo },
 	{ FILTER_EHLO,		"ehlo",		filter_exec_helo },
 	{ FILTER_STARTTLS,     	"starttls",	filter_exec_notimpl },
@@ -81,10 +79,6 @@ static struct filter_exec {
 	{ FILTER_WIZ,    	"wiz",		filter_exec_notimpl },
 	{ FILTER_COMMIT,    	"commit",      	filter_exec_notimpl },
 };
-
-
-static struct tree	sessions;
-static int		inited;
 
 struct filter_session {
 	uint64_t	id;
@@ -117,7 +111,13 @@ struct filter_entry {
 struct filter_chain {
 	TAILQ_HEAD(, filter_entry)		chain[nitems(filter_execs)];
 };
-static struct dict filter_chains;
+
+static struct dict	smtp_in;
+
+static struct tree	sessions;
+static int		inited;
+
+static struct dict	filter_chains;
 
 
 void
@@ -451,6 +451,16 @@ proceed:
 	filter_proceed(reqid);
 }
 
+
+#if 0
+static void
+filter_protocol_next(uint64_t token, uint64_t reqid, enum filter_phase phase, const char *param)
+{
+// NEED TO BE IMPLEMENTED, OTHERWISE FIRST PROC FILTER WINS
+}
+#endif
+
+
 static void
 filter_data(uint64_t reqid, const char *line)
 {
@@ -522,7 +532,7 @@ filter_write(struct filter *filter, uint64_t token, uint64_t reqid, const char *
 
 	fs = tree_xget(&sessions, reqid);
 	time(&tm);
-	if (strcmp(phase, "connected") == 0)
+	if (strcmp(phase, "connect") == 0)
 		n = io_printf(lka_proc_get_io(filter->proc),
 		    "filter|%d|%zd|smtp-in|%s|%016"PRIx64"|%016"PRIx64"|%s|%s\n",
 		    PROTOCOL_VERSION,
@@ -657,7 +667,7 @@ filter_exec_notimpl(struct filter *filter, uint64_t reqid, const char *param)
 }
 
 static int
-filter_exec_connected(struct filter *filter, uint64_t reqid, const char *param)
+filter_exec_connect(struct filter *filter, uint64_t reqid, const char *param)
 {
 	struct filter_session	*fs;
 

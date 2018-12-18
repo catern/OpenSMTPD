@@ -410,7 +410,7 @@ enum expand_type {
 };
 
 enum filter_phase {
-	FILTER_CONNECTED,
+	FILTER_CONNECT,
 	FILTER_HELO,
 	FILTER_EHLO,
 	FILTER_STARTTLS,
