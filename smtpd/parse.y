@@ -106,7 +106,7 @@ static struct ca	*sca;
 struct dispatcher	*dispatcher;
 struct rule		*rule;
 struct processor	*processor;
-struct filter_rule	*filter_rule;
+struct filter_config	*filter_config;
 
 enum listen_options {
 	LO_FAMILY	= 0x000001,
@@ -1116,38 +1116,38 @@ MATCH {
 
 filter_action_builtin:
 REJECT STRING {
-	filter_rule->reject = $2;
+	filter_config->reject = $2;
 }
 | DISCONNECT STRING {
-	filter_rule->disconnect = $2;
+	filter_config->disconnect = $2;
 }
 ;
 
 filter_phase_check_table:
 negation CHECK_TABLE tables {
-	filter_rule->not_table =  $1 ? -1 : 1;
-	filter_rule->table = $3;
+	filter_config->not_table =  $1 ? -1 : 1;
+	filter_config->table = $3;
 }
 ;
 
 filter_phase_check_regex:
 negation CHECK_REGEX tables {
-	filter_rule->not_regex = $1 ? -1 : 1;
-	filter_rule->regex = $3;
+	filter_config->not_regex = $1 ? -1 : 1;
+	filter_config->regex = $3;
 }
 ;
 
 filter_phase_check_fcrdns:
 negation CHECK_FCRDNS {
-	filter_rule->not_fcrdns = $1 ? -1 : 1;
-	filter_rule->fcrdns = 1;
+	filter_config->not_fcrdns = $1 ? -1 : 1;
+	filter_config->fcrdns = 1;
 }
 ;
 
 filter_phase_check_rdns:
 negation CHECK_RDNS {
-	filter_rule->not_rdns = $1 ? -1 : 1;
-	filter_rule->rdns = 1;
+	filter_config->not_rdns = $1 ? -1 : 1;
+	filter_config->rdns = 1;
 }
 ;
 
@@ -1156,7 +1156,7 @@ filter_phase_check_table | filter_phase_check_regex | filter_phase_check_fcrdns 
 
 filter_phase_connect:
 CONNECT {
-	filter_rule->phase = FILTER_CONNECTED;
+	filter_config->phase = FILTER_CONNECTED;
 } filter_phase_connect_options filter_action_builtin
 ;
 
@@ -1165,13 +1165,13 @@ filter_phase_check_table | filter_phase_check_regex | filter_phase_check_fcrdns 
 
 filter_phase_helo:
 HELO {
-	filter_rule->phase = FILTER_HELO;
+	filter_config->phase = FILTER_HELO;
 } filter_phase_helo_options filter_action_builtin
 ;
 
 filter_phase_ehlo:
 EHLO {
-	filter_rule->phase = FILTER_EHLO;
+	filter_config->phase = FILTER_EHLO;
 } filter_phase_helo_options filter_action_builtin
 ;
 
@@ -1180,7 +1180,7 @@ filter_phase_check_table | filter_phase_check_regex | filter_phase_check_fcrdns 
 
 filter_phase_mail_from:
 MAIL_FROM {
-	filter_rule->phase = FILTER_MAIL_FROM;
+	filter_config->phase = FILTER_MAIL_FROM;
 } filter_phase_mail_from_options filter_action_builtin
 ;
 
@@ -1189,45 +1189,46 @@ filter_phase_check_table | filter_phase_check_regex | filter_phase_check_fcrdns 
 
 filter_phase_rcpt_to:
 RCPT_TO {
-	filter_rule->phase = FILTER_RCPT_TO;
+	filter_config->phase = FILTER_RCPT_TO;
 } filter_phase_rcpt_to_options filter_action_builtin
 ;
 
 filter_phase_data:
 DATA {
-	filter_rule->phase = FILTER_DATA;
+	filter_config->phase = FILTER_DATA;
 } filter_action_builtin
 ;
 
 filter_phase_data_line:
 DATA_LINE {
-	filter_rule->phase = FILTER_DATA_LINE;
+	filter_config->phase = FILTER_DATA_LINE;
 } filter_action_builtin
 ;
 
 filter_phase_quit:
 QUIT {
-	filter_rule->phase = FILTER_QUIT;
+	filter_config->phase = FILTER_QUIT;
 } filter_action_builtin
 ;
 
 filter_phase_rset:
 RSET {
-	filter_rule->phase = FILTER_RSET;
+	filter_config->phase = FILTER_RSET;
 } filter_action_builtin
 ;
 
 filter_phase_noop:
 NOOP {
-	filter_rule->phase = FILTER_NOOP;
+	filter_config->phase = FILTER_NOOP;
 } filter_action_builtin
 ;
 
 filter_phase_commit:
 COMMIT {
-	filter_rule->phase = FILTER_COMMIT;
+	filter_config->phase = FILTER_COMMIT;
 } filter_action_builtin
 ;
+
 
 
 filter_phase:
@@ -1247,7 +1248,7 @@ filter_phase_connect
 
 filterel:
 STRING	{
-	struct filter_rule	*fr;
+	struct filter_config	*fr;
 
 	if ((fr = dict_get(conf->sc_filters_dict, $1)) == NULL) {
 		yyerror("no filter exist with that name: %s", $1);
@@ -1259,7 +1260,11 @@ STRING	{
 		free($1);
 		YYERROR;
 	}
-	TAILQ_INSERT_TAIL(&filter_rule->chain, fr, entry);
+	filter_config->chain_size += 1;
+	filter_config->chain = reallocarray(filter_config->chain, filter_config->chain_size, sizeof(char *));
+	if (filter_config->chain == NULL)
+		err(1, NULL);
+	filter_config->chain[filter_config->chain_size - 1] = $1;
 }
 ;
 
@@ -1282,10 +1287,12 @@ FILTER STRING PROC STRING {
 		YYERROR;
 	}
 
-	filter_rule = xcalloc(1, sizeof *filter_rule);
-	filter_rule->filter_type = FILTER_TYPE_PROC;
-	dict_set(conf->sc_filters_dict, $2, filter_rule);
-	filter_rule = NULL;
+	filter_config = xcalloc(1, sizeof *filter_config);
+	filter_config->filter_type = FILTER_TYPE_PROC;
+	filter_config->name = $2;
+	filter_config->proc = $4;
+	dict_set(conf->sc_filters_dict, $2, filter_config);
+	filter_config = NULL;
 }
 |
 FILTER STRING BUILTIN {
@@ -1294,11 +1301,12 @@ FILTER STRING BUILTIN {
 		free($2);
 		YYERROR;
 	}
-	filter_rule = xcalloc(1, sizeof *filter_rule);
-	filter_rule->filter_type = FILTER_TYPE_BUILTIN;
-	dict_set(conf->sc_filters_dict, $2, filter_rule);
+	filter_config = xcalloc(1, sizeof *filter_config);
+	filter_config->name = $2;
+	filter_config->filter_type = FILTER_TYPE_BUILTIN;
+	dict_set(conf->sc_filters_dict, $2, filter_config);
 } filter_phase {
-	filter_rule = NULL;
+	filter_config = NULL;
 }
 |
 FILTER STRING CHAIN {
@@ -1307,12 +1315,11 @@ FILTER STRING CHAIN {
 		free($2);
 		YYERROR;
 	}
-	filter_rule = xcalloc(1, sizeof *filter_rule);
-	filter_rule->filter_type = FILTER_TYPE_CHAIN;
-	TAILQ_INIT(&filter_rule->chain);
+	filter_config = xcalloc(1, sizeof *filter_config);
+	filter_config->filter_type = FILTER_TYPE_CHAIN;
 } '{' filter_list '}' {
-	dict_set(conf->sc_filters_dict, $2, filter_rule);
-	filter_rule = NULL;
+	dict_set(conf->sc_filters_dict, $2, filter_config);
+	filter_config = NULL;
 }
 ;
 

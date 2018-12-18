@@ -410,7 +410,7 @@ enum expand_type {
 };
 
 enum filter_phase {
-	FILTER_CONNECTED = 0,
+	FILTER_CONNECTED,
 	FILTER_HELO,
 	FILTER_EHLO,
 	FILTER_STARTTLS,
@@ -1047,16 +1047,16 @@ enum filter_type {
 	FILTER_TYPE_CHAIN,
 };
 
-struct filter_rule {
-	TAILQ_ENTRY(filter_rule)        entry;
-
+struct filter_config {
+	char			       *name;
 	enum filter_type		filter_type;
 	enum filter_phase               phase;
 	char                           *reject;
 	char                           *disconnect;
 	char                           *rewrite;
 	char                           *proc;
-	TAILQ_HEAD(_filterrules, filter_rule)	chain;
+	const char		      **chain;
+	size_t				chain_size;
 
 	int8_t                          not_table;
 	struct table                   *table;
@@ -1332,6 +1332,7 @@ int lka(void);
 
 
 /* lka_proc.c */
+int lka_proc_ready(void);
 void lka_proc_forked(const char *, int);
 struct io *lka_proc_get_io(const char *);
 
@@ -1360,6 +1361,7 @@ void lka_report_smtp_filter_response(const char *, struct timeval *, uint64_t,
 /* lka_filter.c */
 void lka_filter_init(void);
 void lka_filter_register_hook(const char *, const char *);
+void lka_filter_ready(void);
 void lka_filter_begin(uint64_t, const char *, const struct sockaddr_storage *, const struct sockaddr_storage *, const char *, int);
 void lka_filter_end(uint64_t);
 void lka_filter_protocol(uint64_t, enum filter_phase, const char *);

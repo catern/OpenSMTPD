@@ -60,6 +60,10 @@ static int lka_X509_verify(struct ca_vrfy_req_msg *, const char *, const char *)
 static void lka_certificate_verify(enum imsg_type, struct ca_vrfy_req_msg *);
 static void lka_certificate_verify_resume(enum imsg_type, struct ca_vrfy_req_msg *);
 
+static void proc_timeout(int fd, short event, void *p);
+
+struct event	 ev_proc_ready;
+
 static void
 lka_imsg(struct mproc *p, struct imsg *imsg)
 {
@@ -372,8 +376,11 @@ lka_imsg(struct mproc *p, struct imsg *imsg)
 			NULL) == -1)
 			err(1, "pledge");
 
-		/* Start fulfilling requests */
-		mproc_enable(p_pony);
+		/* setup proc registering task */
+		evtimer_set(&ev_proc_ready, proc_timeout, &ev_proc_ready);
+		tv.tv_sec = 0;
+		tv.tv_usec = 10;
+		evtimer_add(&ev_proc_ready, &tv);
 		return;
 
 	case IMSG_LKA_OPEN_FORWARD:
@@ -713,6 +720,27 @@ lka(void)
 
 	return (0);
 }
+
+static void
+proc_timeout(int fd, short event, void *p)
+{
+	struct event	*ev = p;
+	struct timeval	 tv;
+
+	if (!lka_proc_ready())
+		goto reset;
+
+	//lka_report_ready();
+	lka_filter_ready();
+	mproc_enable(p_pony);
+	return;
+
+reset:
+	tv.tv_sec = 0;
+	tv.tv_usec = 10;
+	evtimer_add(ev, &tv);
+}
+
 
 static int
 lka_authenticate(const char *tablename, const char *user, const char *password)
