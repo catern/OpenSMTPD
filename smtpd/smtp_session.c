@@ -1958,10 +1958,11 @@ smtp_connected(struct smtp_session *s)
 	log_info("%016"PRIx64" smtp connected address=%s host=%s",
 	    s->id, ss_to_text(&s->ss), s->hostname);
 
+	smtp_filter_begin(s);
+
 	report_smtp_link_connect("smtp-in", s->id, s->hostname, s->fcrdns, &s->ss,
 	    &s->listener->ss);
 
-	smtp_filter_begin(s);
 	smtp_filter_phase(FILTER_CONNECT, s, ss_to_text(&s->ss));
 }
 

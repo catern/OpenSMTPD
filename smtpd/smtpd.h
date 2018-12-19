@@ -1364,6 +1364,7 @@ void lka_report_smtp_filter_response(const char *, struct timeval *, uint64_t,
 void lka_filter_init(void);
 void lka_filter_register_hook(const char *, const char *);
 void lka_filter_ready(void);
+int lka_filter_proc_in_session(uint64_t, const char *);
 void lka_filter_begin(uint64_t, const char *, const struct sockaddr_storage *, const struct sockaddr_storage *, const char *, int);
 void lka_filter_end(uint64_t);
 void lka_filter_protocol(uint64_t, enum filter_phase, const char *);

@@ -148,9 +148,8 @@ report_smtp_broadcast(uint64_t reqid, const char *direction, struct timeval *tv,
 
 	tailq = dict_xget(d, event);
 	TAILQ_FOREACH(rp, tailq, entries) {
-		/* lookup if applicable */
-		//if (! lka_filter_should_report(reqid, rp->name))
-		//	continue;
+		if (!lka_filter_proc_in_session(reqid, rp->name))
+			continue;
 
 		va_start(ap, format);
 		if (io_printf(lka_proc_get_io(rp->name), "report|%d|%lld.%06ld|%s|%s|",

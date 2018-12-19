@@ -107,6 +107,7 @@ struct dispatcher	*dispatcher;
 struct rule		*rule;
 struct processor	*processor;
 struct filter_config	*filter_config;
+static uint64_t		 last_dynproc_id = 1;
 
 enum listen_options {
 	LO_FAMILY	= 0x000001,
@@ -1318,7 +1319,7 @@ FILTER STRING PROC_EXEC STRING {
 	char	buffer[128];
 
 	do {
-		(void)snprintf(buffer, sizeof buffer, "<dynproc:%016"PRIx64">", generate_uid());
+		(void)snprintf(buffer, sizeof buffer, "<dynproc:%016"PRIx64">", last_dynproc_id++);
 	} while (dict_check(conf->sc_processors_dict, buffer));
 
 	if (dict_get(conf->sc_filters_dict, $2)) {
