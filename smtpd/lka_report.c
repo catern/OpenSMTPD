@@ -74,7 +74,7 @@ lka_report_init(void)
 {
 	struct reporters	*tailq;
 	size_t			 i;
-	
+
 	dict_init(&smtp_in);
 	dict_init(&smtp_out);
 

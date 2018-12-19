@@ -109,7 +109,7 @@ static struct dict filters;
 struct filter_entry {
 	TAILQ_ENTRY(filter_entry)	entries;
 	uint64_t			id;
-	const char		       *name;	
+	const char		       *name;
 };
 
 struct filter_chain {
@@ -132,7 +132,7 @@ lka_filter_init(void)
 	struct filter  	*filter;
 	struct filter_config	*filter_config;
 	size_t		i;
-	
+
 	dict_init(&filters);
 	dict_init(&filter_chains);
 
@@ -175,7 +175,7 @@ lka_filter_register_hook(const char *name, const char *hook)
 	struct dict		*subsystem;
 	struct filter		*filter;
 	const char	*filter_name;
-	void		*iter;	
+	void		*iter;
 	size_t	i;
 
 	if (strncasecmp(hook, "smtp-in|", 8) == 0) {
@@ -228,7 +228,7 @@ lka_filter_ready(void)
 						    filter_entry, entries);
 					}
 				}
-			}			
+			}
 			continue;
 		}
 		for (i = 0; i < nitems(filter_execs); ++i) {
@@ -239,7 +239,7 @@ lka_filter_ready(void)
 				TAILQ_INSERT_TAIL(&filter_chain->chain[i],
 				    filter_entry, entries);
 			}
-		}		
+		}
 	}
 }
 
