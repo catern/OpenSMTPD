@@ -583,8 +583,6 @@ struct smtpd {
 	size_t				sc_scheduler_max_schedule;
 
 	struct dict		       *sc_processors_dict;
-	struct dict		       *sc_smtp_reporters_dict;
-	struct dict		       *sc_mta_reporters_dict;
 
 	int				sc_ttl;
 #define MAX_BOUNCE_WARN			4
