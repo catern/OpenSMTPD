@@ -55,6 +55,8 @@ static int	filter_exec_rcpt_to(struct filter *, uint64_t, const char *);
 static void	filter_session_io(struct io *, int, void *);
 int		lka_filter_process_response(const char *, const char *);
 static void	filter_data_next(uint64_t, uint64_t, const char *);
+static void	filter_protocol_next(uint64_t, uint64_t, const char *);
+
 
 #define	PROTOCOL_VERSION	1
 
@@ -89,6 +91,8 @@ struct filter_session {
 	struct sockaddr_storage ss_dest;
 	char *rdns;
 	int fcrdns;
+
+	enum filter_phase	phase;
 };
 
 struct filter {
@@ -428,7 +432,23 @@ lka_filter_process_response(const char *name, const char *line)
 	    parameter == NULL)
 		return 0;
 
-	return lka_filter_response(reqid, response, parameter);
+	if (strcmp(response, "rewrite") == 0) {
+		filter_rewrite(reqid, parameter);
+		return 1;
+	}
+
+	if (strcmp(response, "reject") == 0) {
+		filter_reject(reqid, parameter);
+		return 1;
+	}
+
+	if (strcmp(response, "disconnect") == 0) {
+		filter_disconnect(reqid, parameter);
+		return 1;
+	}
+
+	filter_protocol_next(token, reqid, parameter);
+	return 1;
 }
 
 void
@@ -451,6 +471,7 @@ lka_filter_protocol(uint64_t reqid, enum filter_phase phase, const char *param)
 	if (TAILQ_EMPTY(&filter_chain->chain[i]))
 		goto proceed;
 
+	fs->phase = phase;
 	TAILQ_FOREACH(filter_entry, &filter_chain->chain[i], entries) {
 		filter = dict_get(&filters, filter_entry->name);
 		if (filter->proc) {
@@ -474,14 +495,42 @@ proceed:
 	filter_proceed(reqid);
 }
 
-
-#if 0
 static void
-filter_protocol_next(uint64_t token, uint64_t reqid, enum filter_phase phase, const char *param)
+filter_protocol_next(uint64_t token, uint64_t reqid, const char *param)
 {
-// NEED TO BE IMPLEMENTED, OTHERWISE FIRST PROC FILTER WINS
+	struct filter_session	*fs;
+	struct filter_chain	*filter_chain;
+	struct filter_entry	*filter_entry;
+	struct filter		*filter;
+
+	fs = tree_xget(&sessions, reqid);
+	filter_chain = dict_get(&filter_chains, fs->filter_name);
+
+	TAILQ_FOREACH(filter_entry, &filter_chain->chain[fs->phase], entries)
+	    if (filter_entry->id == token)
+		    break;
+
+	while ((filter_entry = TAILQ_NEXT(filter_entry, entries))) {
+		filter = dict_get(&filters, filter_entry->name);
+		if (filter->proc) {
+			filter_write(filter, filter_entry->id, reqid,
+			    filter_execs[fs->phase].phase_name, param);
+			return;	/* deferred */
+		}
+
+		if (filter_execs[fs->phase].func(filter, reqid, param)) {
+			if (filter->config->rewrite)
+				filter_rewrite(reqid, filter->config->rewrite);
+			else if (filter->config->disconnect)
+				filter_disconnect(reqid, filter->config->disconnect);
+			else
+				filter_reject(reqid, filter->config->reject);
+			return;
+		}
+	}
+
+	filter_proceed(reqid);
 }
-#endif
 
 
 static void
@@ -493,8 +542,10 @@ filter_data(uint64_t reqid, const char *line)
 	struct filter		*filter;
 
 	fs = tree_xget(&sessions, reqid);
+
+	fs->phase = FILTER_DATA_LINE;
 	filter_chain = dict_get(&filter_chains, fs->filter_name);
-	filter_entry = TAILQ_FIRST(&filter_chain->chain[FILTER_DATA_LINE]);
+	filter_entry = TAILQ_FIRST(&filter_chain->chain[fs->phase]);
 	if (filter_entry == NULL) {
 		io_printf(fs->io, "%s\r\n", line);
 		return;
@@ -515,7 +566,7 @@ filter_data_next(uint64_t token, uint64_t reqid, const char *line)
 	fs = tree_xget(&sessions, reqid);
 	filter_chain = dict_get(&filter_chains, fs->filter_name);
 
-	TAILQ_FOREACH(filter_entry, &filter_chain->chain[FILTER_DATA_LINE], entries)
+	TAILQ_FOREACH(filter_entry, &filter_chain->chain[fs->phase], entries)
 	    if (filter_entry->id == token)
 		    break;
 
