@@ -187,7 +187,7 @@ typedef struct {
 %token	MAIL_FROM MAILDIR MASK_SRC MASQUERADE MATCH MAX_MESSAGE_SIZE MAX_DEFERRED MBOX MDA MTA MX
 %token	NO_DSN NO_VERIFY NOOP
 %token	ON
-%token	PKI PORT PROC
+%token	PKI PORT PROC PROC_EXEC
 %token	QUEUE QUIT
 %token	RCPT_TO RECIPIENT RECEIVEDAUTH RELAY REJECT REPORT REWRITE RSET
 %token	SCHEDULER SENDER SENDERS SMTP SMTP_IN SMTP_OUT SMTPS SOCKET SRC SUB_ADDR_DELIM
@@ -1270,6 +1270,15 @@ STRING	{
 		}
 	}
 
+	if (fr->proc) {
+		if (dict_check(&filter_config->chain_procs, fr->proc)) {
+			yyerror("no proc allowed twice within a filter chain: %s", fr->proc);
+			free($1);
+			YYERROR;
+		}
+		dict_set(&filter_config->chain_procs, fr->proc, NULL);
+	}
+
 	filter_config->chain_size += 1;
 	filter_config->chain = reallocarray(filter_config->chain, filter_config->chain_size, sizeof(char *));
 	if (filter_config->chain == NULL)
@@ -1305,6 +1314,34 @@ FILTER STRING PROC STRING {
 	filter_config = NULL;
 }
 |
+FILTER STRING PROC_EXEC STRING {
+	char	buffer[128];
+
+	do {
+		(void)snprintf(buffer, sizeof buffer, "<dynproc:%016"PRIx64">", generate_uid());
+	} while (dict_check(conf->sc_processors_dict, buffer));
+
+	if (dict_get(conf->sc_filters_dict, $2)) {
+		yyerror("filter already exists with that name: %s", $2);
+		free($2);
+		free($4);
+		YYERROR;
+	}
+
+	processor = xcalloc(1, sizeof *processor);
+	processor->command = $4;
+
+	filter_config = xcalloc(1, sizeof *filter_config);
+	filter_config->filter_type = FILTER_TYPE_PROC;
+	filter_config->name = $2;
+	filter_config->proc = xstrdup(buffer);
+	dict_set(conf->sc_filters_dict, $2, filter_config);
+} proc_params {
+	dict_set(conf->sc_processors_dict, filter_config->proc, processor);
+	processor = NULL;
+	filter_config = NULL;
+}
+|
 FILTER STRING BUILTIN {
 	if (dict_get(conf->sc_filters_dict, $2)) {
 		yyerror("filter already exists with that name: %s", $2);
@@ -1327,6 +1364,7 @@ FILTER STRING CHAIN {
 	}
 	filter_config = xcalloc(1, sizeof *filter_config);
 	filter_config->filter_type = FILTER_TYPE_CHAIN;
+	dict_init(&filter_config->chain_procs);
 } '{' filter_list '}' {
 	dict_set(conf->sc_filters_dict, $2, filter_config);
 	filter_config = NULL;
@@ -1953,6 +1991,7 @@ lookup(char *s)
 		{ "pki",		PKI },
 		{ "port",		PORT },
 		{ "proc",		PROC },
+		{ "proc-exec",		PROC_EXEC },
 		{ "queue",		QUEUE },
 		{ "quit",		QUIT },
 		{ "rcpt-to",		RCPT_TO },

@@ -1055,8 +1055,10 @@ struct filter_config {
 	char                           *disconnect;
 	char                           *rewrite;
 	char                           *proc;
+
 	const char		      **chain;
 	size_t				chain_size;
+	struct dict			chain_procs;
 
 	int8_t                          not_table;
 	struct table                   *table;
