@@ -35,15 +35,16 @@
 #include "smtpd.h"
 #include "log.h"
 
+struct filter;
+
 static void	filter_proceed(uint64_t);
 static void	filter_rewrite(uint64_t, const char *);
 static void	filter_reject(uint64_t, const char *);
 static void	filter_disconnect(uint64_t, const char *);
 
-static void	filter_data(uint64_t reqid, const char *line);
+static void	filter_data(uint64_t, const char *);
 
 
-struct filter;
 static void	filter_write(struct filter *, uint64_t, uint64_t, const char *, const char *);
 static void	filter_write_dataline(struct filter *, uint64_t, uint64_t, const char *);
 static int	filter_exec_notimpl(struct filter *, uint64_t, const char *);
