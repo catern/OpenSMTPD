@@ -38,7 +38,6 @@
 static int			inited = 0;
 static struct dict		processors;
 
-
 struct processor_instance {
 	char			*name;
 	struct io		*io;

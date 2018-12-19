@@ -730,7 +730,6 @@ proc_timeout(int fd, short event, void *p)
 	if (!lka_proc_ready())
 		goto reset;
 
-	//lka_report_ready();
 	lka_filter_ready();
 	mproc_enable(p_pony);
 	return;
