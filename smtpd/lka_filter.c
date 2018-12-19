@@ -255,7 +255,7 @@ lka_filter_proc_in_session(uint64_t reqid, const char *proc)
 
 	if (filter->proc)
 		return strcmp(filter->proc, proc) == 0 ? 1 : 0;
-	
+
 	for (i = 0; i < filter->chain_size; i++) {
 		if (filter->chain[i]->proc &&
 		    strcmp(filter->chain[i]->proc, proc) == 0)
