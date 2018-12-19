@@ -37,26 +37,27 @@
 
 struct filter;
 
-static void	filter_proceed(uint64_t);
-static void	filter_rewrite(uint64_t, const char *);
-static void	filter_reject(uint64_t, const char *);
-static void	filter_disconnect(uint64_t, const char *);
+static void	filter_protocol(uint64_t, enum filter_phase, const char *);
+static void	filter_protocol_next(uint64_t, uint64_t, const char *);
+static void	filter_protocol_query(struct filter *, uint64_t, uint64_t, const char *, const char *);
 
 static void	filter_data(uint64_t, const char *);
+static void	filter_data_next(uint64_t, uint64_t, const char *);
+static void	filter_data_query(struct filter *, uint64_t, uint64_t, const char *);
 
+static int	filter_builtins_notimpl(struct filter *, uint64_t, const char *);
+static int	filter_builtins_connect(struct filter *, uint64_t, const char *);
+static int	filter_builtins_helo(struct filter *, uint64_t, const char *);
+static int	filter_builtins_mail_from(struct filter *, uint64_t, const char *);
+static int	filter_builtins_rcpt_to(struct filter *, uint64_t, const char *);
 
-static void	filter_write(struct filter *, uint64_t, uint64_t, const char *, const char *);
-static void	filter_write_dataline(struct filter *, uint64_t, uint64_t, const char *);
-static int	filter_exec_notimpl(struct filter *, uint64_t, const char *);
-static int	filter_exec_connect(struct filter *, uint64_t, const char *);
-static int	filter_exec_helo(struct filter *, uint64_t, const char *);
-static int	filter_exec_mail_from(struct filter *, uint64_t, const char *);
-static int	filter_exec_rcpt_to(struct filter *, uint64_t, const char *);
+static void	filter_result_proceed(uint64_t);
+static void	filter_result_rewrite(uint64_t, const char *);
+static void	filter_result_reject(uint64_t, const char *);
+static void	filter_result_disconnect(uint64_t, const char *);
 
 static void	filter_session_io(struct io *, int, void *);
 int		lka_filter_process_response(const char *, const char *);
-static void	filter_data_next(uint64_t, uint64_t, const char *);
-static void	filter_protocol_next(uint64_t, uint64_t, const char *);
 
 
 #define	PROTOCOL_VERSION	1
@@ -66,21 +67,21 @@ static struct filter_exec {
 	const char	       *phase_name;
 	int		       (*func)(struct filter *, uint64_t, const char *);
 } filter_execs[FILTER_PHASES_COUNT] = {
-	{ FILTER_CONNECT,	"connect",	filter_exec_connect },
-	{ FILTER_HELO,		"helo",		filter_exec_helo },
-	{ FILTER_EHLO,		"ehlo",		filter_exec_helo },
-	{ FILTER_STARTTLS,     	"starttls",	filter_exec_notimpl },
-	{ FILTER_AUTH,     	"auth",		filter_exec_notimpl },
-	{ FILTER_MAIL_FROM,    	"mail-from",	filter_exec_mail_from },
-	{ FILTER_RCPT_TO,    	"rcpt-to",	filter_exec_rcpt_to },
-	{ FILTER_DATA,    	"data",		filter_exec_notimpl },
-	{ FILTER_DATA_LINE,    	"data-line",   	filter_exec_notimpl },
-	{ FILTER_RSET,    	"rset",		filter_exec_notimpl },
-	{ FILTER_QUIT,    	"quit",		filter_exec_notimpl },
-	{ FILTER_NOOP,    	"noop",		filter_exec_notimpl },
-	{ FILTER_HELP,    	"help",		filter_exec_notimpl },
-	{ FILTER_WIZ,    	"wiz",		filter_exec_notimpl },
-	{ FILTER_COMMIT,    	"commit",      	filter_exec_notimpl },
+	{ FILTER_CONNECT,	"connect",	filter_builtins_connect },
+	{ FILTER_HELO,		"helo",		filter_builtins_helo },
+	{ FILTER_EHLO,		"ehlo",		filter_builtins_helo },
+	{ FILTER_STARTTLS,     	"starttls",	filter_builtins_notimpl },
+	{ FILTER_AUTH,     	"auth",		filter_builtins_notimpl },
+	{ FILTER_MAIL_FROM,    	"mail-from",	filter_builtins_mail_from },
+	{ FILTER_RCPT_TO,    	"rcpt-to",	filter_builtins_rcpt_to },
+	{ FILTER_DATA,    	"data",		filter_builtins_notimpl },
+	{ FILTER_DATA_LINE,    	"data-line",   	filter_builtins_notimpl },
+	{ FILTER_RSET,    	"rset",		filter_builtins_notimpl },
+	{ FILTER_QUIT,    	"quit",		filter_builtins_notimpl },
+	{ FILTER_NOOP,    	"noop",		filter_builtins_notimpl },
+	{ FILTER_HELP,    	"help",		filter_builtins_notimpl },
+	{ FILTER_WIZ,    	"wiz",		filter_builtins_notimpl },
+	{ FILTER_COMMIT,    	"commit",      	filter_builtins_notimpl },
 };
 
 struct filter_session {
@@ -434,17 +435,17 @@ lka_filter_process_response(const char *name, const char *line)
 		return 0;
 
 	if (strcmp(response, "rewrite") == 0) {
-		filter_rewrite(reqid, parameter);
+		filter_result_rewrite(reqid, parameter);
 		return 1;
 	}
 
 	if (strcmp(response, "reject") == 0) {
-		filter_reject(reqid, parameter);
+		filter_result_reject(reqid, parameter);
 		return 1;
 	}
 
 	if (strcmp(response, "disconnect") == 0) {
-		filter_disconnect(reqid, parameter);
+		filter_result_disconnect(reqid, parameter);
 		return 1;
 	}
 
@@ -454,6 +455,12 @@ lka_filter_process_response(const char *name, const char *line)
 
 void
 lka_filter_protocol(uint64_t reqid, enum filter_phase phase, const char *param)
+{
+	filter_protocol(reqid, phase, param);
+}
+
+void
+filter_protocol(uint64_t reqid, enum filter_phase phase, const char *param)
 {
 	struct filter_session	*fs;
 	struct filter_chain	*filter_chain;
@@ -476,24 +483,24 @@ lka_filter_protocol(uint64_t reqid, enum filter_phase phase, const char *param)
 	TAILQ_FOREACH(filter_entry, &filter_chain->chain[i], entries) {
 		filter = dict_get(&filters, filter_entry->name);
 		if (filter->proc) {
-			filter_write(filter, filter_entry->id, reqid,
+			filter_protocol_query(filter, filter_entry->id, reqid,
 			    filter_execs[i].phase_name, param);
 			return;	/* deferred */
 		}
 
 		if (filter_execs[i].func(filter, reqid, param)) {
 			if (filter->config->rewrite)
-				filter_rewrite(reqid, filter->config->rewrite);
+				filter_result_rewrite(reqid, filter->config->rewrite);
 			else if (filter->config->disconnect)
-				filter_disconnect(reqid, filter->config->disconnect);
+				filter_result_disconnect(reqid, filter->config->disconnect);
 			else
-				filter_reject(reqid, filter->config->reject);
+				filter_result_reject(reqid, filter->config->reject);
 			return;
 		}
 	}
 
 proceed:
-	filter_proceed(reqid);
+	filter_result_proceed(reqid);
 }
 
 static void
@@ -514,23 +521,23 @@ filter_protocol_next(uint64_t token, uint64_t reqid, const char *param)
 	while ((filter_entry = TAILQ_NEXT(filter_entry, entries))) {
 		filter = dict_get(&filters, filter_entry->name);
 		if (filter->proc) {
-			filter_write(filter, filter_entry->id, reqid,
+			filter_protocol_query(filter, filter_entry->id, reqid,
 			    filter_execs[fs->phase].phase_name, param);
 			return;	/* deferred */
 		}
 
 		if (filter_execs[fs->phase].func(filter, reqid, param)) {
 			if (filter->config->rewrite)
-				filter_rewrite(reqid, filter->config->rewrite);
+				filter_result_rewrite(reqid, filter->config->rewrite);
 			else if (filter->config->disconnect)
-				filter_disconnect(reqid, filter->config->disconnect);
+				filter_result_disconnect(reqid, filter->config->disconnect);
 			else
-				filter_reject(reqid, filter->config->reject);
+				filter_result_reject(reqid, filter->config->reject);
 			return;
 		}
 	}
 
-	filter_proceed(reqid);
+	filter_result_proceed(reqid);
 }
 
 
@@ -553,7 +560,7 @@ filter_data(uint64_t reqid, const char *line)
 	}
 
 	filter = dict_get(&filters, filter_entry->name);
-	filter_write_dataline(filter, filter_entry->id, reqid, line);
+	filter_data_query(filter, filter_entry->id, reqid, line);
 }
 
 static void
@@ -573,7 +580,7 @@ filter_data_next(uint64_t token, uint64_t reqid, const char *line)
 
 	if ((filter_entry = TAILQ_NEXT(filter_entry, entries))) {
 		filter = dict_get(&filters, filter_entry->name);
-		filter_write_dataline(filter, filter_entry->id, reqid, line);
+		filter_data_query(filter, filter_entry->id, reqid, line);
 		return;
 	}
 
@@ -585,20 +592,20 @@ int
 lka_filter_response(uint64_t reqid, const char *response, const char *param)
 {
 	if (strcmp(response, "proceed") == 0)
-		filter_proceed(reqid);
+		filter_result_proceed(reqid);
 	else if (strcmp(response, "rewrite") == 0)
-		filter_rewrite(reqid, param);
+		filter_result_rewrite(reqid, param);
 	else if (strcmp(response, "reject") == 0)
-		filter_reject(reqid, param);
+		filter_result_reject(reqid, param);
 	else if (strcmp(response, "disconnect") == 0)
-		filter_disconnect(reqid, param);
+		filter_result_disconnect(reqid, param);
 	else
 		return 0;
 	return 1;
 }
 
 static void
-filter_write(struct filter *filter, uint64_t token, uint64_t reqid, const char *phase, const char *param)
+filter_protocol_query(struct filter *filter, uint64_t token, uint64_t reqid, const char *phase, const char *param)
 {
 	int	n;
 	time_t	tm;
@@ -623,7 +630,7 @@ filter_write(struct filter *filter, uint64_t token, uint64_t reqid, const char *
 }
 
 static void
-filter_write_dataline(struct filter *filter, uint64_t token, uint64_t reqid, const char *line)
+filter_data_query(struct filter *filter, uint64_t token, uint64_t reqid, const char *line)
 {
 	int	n;
 	time_t	tm;
@@ -639,7 +646,7 @@ filter_write_dataline(struct filter *filter, uint64_t token, uint64_t reqid, con
 }
 
 static void
-filter_proceed(uint64_t reqid)
+filter_result_proceed(uint64_t reqid)
 {
 	m_create(p_pony, IMSG_FILTER_SMTP_PROTOCOL, 0, 0, -1);
 	m_add_id(p_pony, reqid);
@@ -648,7 +655,7 @@ filter_proceed(uint64_t reqid)
 }
 
 static void
-filter_rewrite(uint64_t reqid, const char *param)
+filter_result_rewrite(uint64_t reqid, const char *param)
 {
 	m_create(p_pony, IMSG_FILTER_SMTP_PROTOCOL, 0, 0, -1);
 	m_add_id(p_pony, reqid);
@@ -658,7 +665,7 @@ filter_rewrite(uint64_t reqid, const char *param)
 }
 
 static void
-filter_reject(uint64_t reqid, const char *message)
+filter_result_reject(uint64_t reqid, const char *message)
 {
 	m_create(p_pony, IMSG_FILTER_SMTP_PROTOCOL, 0, 0, -1);
 	m_add_id(p_pony, reqid);
@@ -668,7 +675,7 @@ filter_reject(uint64_t reqid, const char *message)
 }
 
 static void
-filter_disconnect(uint64_t reqid, const char *message)
+filter_result_disconnect(uint64_t reqid, const char *message)
 {
 	m_create(p_pony, IMSG_FILTER_SMTP_PROTOCOL, 0, 0, -1);
 	m_add_id(p_pony, reqid);
@@ -735,13 +742,13 @@ filter_check_rdns(struct filter *filter, const char *hostname)
 }
 
 static int
-filter_exec_notimpl(struct filter *filter, uint64_t reqid, const char *param)
+filter_builtins_notimpl(struct filter *filter, uint64_t reqid, const char *param)
 {
 	return 0;
 }
 
 static int
-filter_exec_connect(struct filter *filter, uint64_t reqid, const char *param)
+filter_builtins_connect(struct filter *filter, uint64_t reqid, const char *param)
 {
 	struct filter_session	*fs;
 
@@ -755,7 +762,7 @@ filter_exec_connect(struct filter *filter, uint64_t reqid, const char *param)
 }
 
 static int
-filter_exec_helo(struct filter *filter, uint64_t reqid, const char *param)
+filter_builtins_helo(struct filter *filter, uint64_t reqid, const char *param)
 {
 	struct filter_session	*fs;
 
@@ -769,7 +776,7 @@ filter_exec_helo(struct filter *filter, uint64_t reqid, const char *param)
 }
 
 static int
-filter_exec_mail_from(struct filter *filter, uint64_t reqid, const char *param)
+filter_builtins_mail_from(struct filter *filter, uint64_t reqid, const char *param)
 {
 	char	buffer[SMTPD_MAXMAILADDRSIZE];
 	struct filter_session	*fs;
@@ -788,7 +795,7 @@ filter_exec_mail_from(struct filter *filter, uint64_t reqid, const char *param)
 }
 
 static int
-filter_exec_rcpt_to(struct filter *filter, uint64_t reqid, const char *param)
+filter_builtins_rcpt_to(struct filter *filter, uint64_t reqid, const char *param)
 {
 	char	buffer[SMTPD_MAXMAILADDRSIZE];
 	struct filter_session	*fs;
