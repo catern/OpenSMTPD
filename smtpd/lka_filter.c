@@ -62,7 +62,7 @@ static struct filter_exec {
 	enum filter_phase	phase;
 	const char	       *phase_name;
 	int		       (*func)(struct filter *, uint64_t, const char *);
-} filter_execs[] = {
+} filter_execs[FILTER_PHASES_COUNT] = {
 	{ FILTER_CONNECT,	"connect",	filter_exec_connect },
 	{ FILTER_HELO,		"helo",		filter_exec_helo },
 	{ FILTER_EHLO,		"ehlo",		filter_exec_helo },
@@ -188,10 +188,9 @@ lka_filter_register_hook(const char *name, const char *hook)
 		return;
 
 	iter = NULL;
-	while (dict_iter(&filters, &iter, &filter_name, (void **)&filter)) {
+	while (dict_iter(&filters, &iter, &filter_name, (void **)&filter))
 		if (filter->proc && strcmp(name, filter->proc) == 0)
 			filter->phases |= (1<<filter_execs[i].phase);
-	}
 }
 
 void
@@ -256,11 +255,10 @@ lka_filter_proc_in_session(uint64_t reqid, const char *proc)
 	if (filter->proc)
 		return strcmp(filter->proc, proc) == 0 ? 1 : 0;
 
-	for (i = 0; i < filter->chain_size; i++) {
+	for (i = 0; i < filter->chain_size; i++)
 		if (filter->chain[i]->proc &&
 		    strcmp(filter->chain[i]->proc, proc) == 0)
 			return 1;
-	}
 
 	return 0;
 }
@@ -520,14 +518,13 @@ filter_data_next(uint64_t token, uint64_t reqid, const char *line)
 	TAILQ_FOREACH(filter_entry, &filter_chain->chain[FILTER_DATA_LINE], entries)
 	    if (filter_entry->id == token)
 		    break;
-	if (filter_entry == NULL)
-		fatalx("woops");
 
 	if ((filter_entry = TAILQ_NEXT(filter_entry, entries))) {
 		filter = dict_get(&filters, filter_entry->name);
 		filter_write_dataline(filter, filter_entry->id, reqid, line);
 		return;
 	}
+
 	io_printf(fs->io, "%s\r\n", line);
 }
 
