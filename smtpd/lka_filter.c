@@ -334,8 +334,10 @@ lka_filter_data_end(uint64_t reqid)
 	struct filter_session	*fs;
 
 	fs = tree_xget(&sessions, reqid);
-	io_free(fs->io);
-	fs->io = NULL;
+	if (fs->io) {
+		io_free(fs->io);
+		fs->io = NULL;
+	}
 }
 
 static void
@@ -361,7 +363,8 @@ filter_session_io(struct io *io, int evt, void *arg)
 		goto nextline;
 
 	case IO_DISCONNECTED:
-		lka_filter_data_end(fs->id);
+		io_free(fs->io);
+		fs->io = NULL;
 		break;
 	}	
 }
