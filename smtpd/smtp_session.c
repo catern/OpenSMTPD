@@ -2868,10 +2868,6 @@ filter_session_io(struct io *io, int evt, void *arg)
 		}
 
 		goto nextline;
-
-	case IO_DISCONNECTED:
-		io_free(tx->filter);
-		tx->filter = NULL;
 	}
 }
 

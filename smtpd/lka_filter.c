@@ -315,7 +315,8 @@ lka_filter_data_begin(uint64_t reqid)
 
 	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, sp) == -1)
 		goto end;
-
+	io_set_nonblocking(sp[0]);
+	io_set_nonblocking(sp[1]);
 	fd = sp[0];
 	fs->io = io_new();
 	io_set_fd(fs->io, sp[1]);
@@ -334,8 +335,10 @@ lka_filter_data_end(uint64_t reqid)
 	struct filter_session	*fs;
 
 	fs = tree_xget(&sessions, reqid);
-	io_free(fs->io);
-	fs->io = NULL;
+	if (fs->io) {
+		io_free(fs->io);
+		fs->io = NULL;
+	}
 }
 
 static void
@@ -361,7 +364,8 @@ filter_session_io(struct io *io, int evt, void *arg)
 		goto nextline;
 
 	case IO_DISCONNECTED:
-		lka_filter_data_end(fs->id);
+		io_free(fs->io);
+		fs->io = NULL;
 		break;
 	}	
 }
