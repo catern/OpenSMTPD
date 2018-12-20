@@ -359,7 +359,11 @@ filter_session_io(struct io *io, int evt, void *arg)
 		filter_data(fs->id, line);
 
 		goto nextline;
-	}
+
+	case IO_DISCONNECTED:
+		lka_filter_data_end(fs->id);
+		break;
+	}	
 }
 
 int
