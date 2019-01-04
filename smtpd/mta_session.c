@@ -1546,7 +1546,7 @@ mta_tls_verified(struct mta_session *s)
 
 	x = SSL_get_peer_certificate(io_ssl(s->io));
 	if (x) {
-		log_info("%016"PRIx64" smtp-out cert-verify result=\"%s\"",
+		log_info("%016"PRIx64" smtp-out cert-verify result=%s",
 		    s->id, 
 		    (s->flags & MTA_TLS_VERIFIED) ? "succeeded" : "failed");
 		X509_free(x);

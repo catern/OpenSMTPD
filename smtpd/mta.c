@@ -1697,16 +1697,14 @@ static void
 mta_log(const struct mta_envelope *evp, const char *prefix, const char *source,
     const char *relay, const char *status)
 {
-	log_info("%016"PRIx64" smtp-out delivery evpid=%016"PRIx64" "
-	    "from=<%s> to=<%s> rcpt=<%s> source=\"%s\" "
-	    "relay=\"%s\" delay=%s result=\"%s\" stat=\"%s\"",
+	log_info("%016"PRIx64" smtp-out envelope evpid=%016"PRIx64" "
+	    "from=<%s> to=<%s> rcpt=<%s> "
+	    "delay=%s result=\"%s\" stat=\"%s\"",
 	    evp->session,
 	    evp->id,
 	    evp->task->sender,
 	    evp->dest,
 	    evp->rcpt ? evp->rcpt : "-",
-	    source ? source : "-",
-	    relay,
 	    duration_to_text(time(NULL) - evp->creation),
 	    prefix,
 	    status);
