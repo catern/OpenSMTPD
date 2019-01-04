@@ -493,7 +493,7 @@ mta_connect(struct mta_session *s)
 	else
 		schema = "smtp+notls://";
 
-	log_info("%016"PRIx64" mta "
+	log_info("%016"PRIx64" smtp-out "
 	    "connecting address=%s%s:%d host=%s",
 	    s->id, schema, sa_to_text(s->route->dst->sa),
 	    portno, s->route->dst->ptrname);
@@ -660,7 +660,7 @@ mta_enter_state(struct mta_session *s, int newstate)
 		}
 
 		if (s->msgtried >= MAX_TRYBEFOREDISABLE) {
-			log_info("%016"PRIx64" mta host-rejects-all-mails",
+			log_info("%016"PRIx64" smtp-out host-rejects-all-mails",
 			    s->id);
 			mta_route_down(s->relay, s->route);
 			mta_enter_state(s, MTA_QUIT);
@@ -1089,7 +1089,7 @@ mta_io(struct io *io, int evt, void *arg)
 	switch (evt) {
 
 	case IO_CONNECTED:
-		log_info("%016"PRIx64" mta connected", s->id);
+		log_info("%016"PRIx64" smtp-out connected", s->id);
 
 		if (s->use_smtps) {
 			io_set_write(io);
@@ -1102,7 +1102,7 @@ mta_io(struct io *io, int evt, void *arg)
 		break;
 
 	case IO_TLSREADY:
-		log_info("%016"PRIx64" mta tls ciphers=%s",
+		log_info("%016"PRIx64" smtp-out tls ciphers=%s",
 		    s->id, ssl_to_text(io_ssl(s->io)));
 		s->flags |= MTA_TLS;
 
@@ -1184,7 +1184,7 @@ mta_io(struct io *io, int evt, void *arg)
 			(void)strlcpy(s->replybuf, line, sizeof s->replybuf);
 
 		if (s->state == MTA_QUIT) {
-			log_info("%016"PRIx64" mta disconnected reason=quit messages=%zu",
+			log_info("%016"PRIx64" smtp-out disconnected reason=quit messages=%zu",
 			    s->id, s->msgcount);
 			mta_free(s);
 			return;
@@ -1243,9 +1243,9 @@ mta_io(struct io *io, int evt, void *arg)
 		else if (!(s->flags & (MTA_FORCE_TLS|MTA_FORCE_SMTPS|MTA_FORCE_ANYSSL))) {
 			/* error in non-strict SSL negotiation, downgrade to plain */
 			if (s->flags & MTA_TLS) {
-				log_info("smtp-out: Error on session %016"PRIx64
-				    ": opportunistic TLS failed, "
-				    "downgrading to plain", s->id);
+				log_info("%016"PRIx64" smtp-out tls-error "
+				    "reason=\"TLS failed, downgrading to plain\"",
+				    s->id);
 				s->flags &= ~MTA_TLS;
 				s->flags |= MTA_DOWNGRADE_PLAIN;
 				mta_connect(s);
@@ -1260,9 +1260,9 @@ mta_io(struct io *io, int evt, void *arg)
 		log_debug("debug: mta: %p: TLS IO error: %s", s, io_error(io));
 		if (!(s->flags & (MTA_FORCE_TLS|MTA_FORCE_SMTPS|MTA_FORCE_ANYSSL))) {
 			/* error in non-strict SSL negotiation, downgrade to plain */
-			log_info("smtp-out: TLS Error on session %016"PRIx64
-			    ": TLS failed, "
-			    "downgrading to plain", s->id);
+			log_info("%016"PRIx64" smtp-out tls-error "
+			    "reason=\"TLS failed, downgrading to plain\"",
+			    s->id);
 			s->flags &= ~MTA_TLS;
 			s->flags |= MTA_DOWNGRADE_PLAIN;
 			mta_connect(s);
@@ -1420,13 +1420,8 @@ mta_error(struct mta_session *s, const char *fmt, ...)
 		fatal("mta: vasprintf");
 	va_end(ap);
 
-	if (s->msgcount)
-		log_info("smtp-out: Error on session %016"PRIx64
-		    " after %zu message%s sent: %s", s->id, s->msgcount,
-		    (s->msgcount > 1) ? "s" : "", error);
-	else
-		log_info("%016"PRIx64" mta error reason=%s",
-		    s->id, error);
+	log_info("%016"PRIx64" smtp-out session-error reason=\"%s\"",
+	    s->id, error);
 
 	/*
 	 * If not connected yet, and the error is not local, just ignore it
@@ -1480,7 +1475,7 @@ mta_cert_init_cb(void *arg, int status, const char *name, const void *cert,
 		mta_tree_pop(&wait_ssl_init, s->id);
 
 	if (status == CA_FAIL && s->relay->pki_name) {
-		log_info("%016"PRIx64" mta closing reason=ca-failure", s->id);
+		log_info("%016"PRIx64" smtp-out closing reason=ca-failure", s->id);
 		mta_free(s);
 		return;
 	}
@@ -1551,10 +1546,9 @@ mta_tls_verified(struct mta_session *s)
 
 	x = SSL_get_peer_certificate(io_ssl(s->io));
 	if (x) {
-		log_info("smtp-out: Server certificate verification %s "
-		    "on session %016"PRIx64,
-		    (s->flags & MTA_TLS_VERIFIED) ? "succeeded" : "failed",
-		    s->id);
+		log_info("%016"PRIx64" smtp-out cert-verify result=\"%s\"",
+		    s->id, 
+		    (s->flags & MTA_TLS_VERIFIED) ? "succeeded" : "failed");
 		X509_free(x);
 	}
 
