@@ -512,8 +512,7 @@ droppriv(void)
 	if ((pw = getpwnam(env->sc_smtpd_user)) == NULL)
 		errx(1, "unknown user %s", env->sc_smtpd_user);
 
-	if ((setgroups(1, &pw->pw_gid) ||
-	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
+	if ((setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid)))
 		err(1, "cannot drop privileges");
 }
