@@ -1289,8 +1289,7 @@ purge_task(void)
 				fatal("smtpd: chdir");
 			uid = pw->pw_uid;
 			gid = pw->pw_gid;
-			if (setgroups(1, &gid) ||
-			    setresgid(gid, gid, gid) ||
+			if (setresgid(gid, gid, gid) ||
 			    setresuid(uid, uid, uid))
 				fatal("smtpd: cannot drop privileges");
 			rmtree("/", 1);
@@ -1354,18 +1353,6 @@ forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 		pw_dir = deliver->userinfo.directory;
 	}
 
-	if (pw_uid == 0 && !dsp->u.local.requires_root) {
-		(void)snprintf(ebuf, sizeof ebuf, "not allowed to deliver to: %s",
-		    deliver->userinfo.username);
-		m_create(p_pony, IMSG_MDA_DONE, 0, 0, -1);
-		m_add_id(p_pony, id);
-		m_add_int(p_pony, MDA_PERMFAIL);
-		m_add_int(p_pony, EX_NOPERM);
-		m_add_string(p_pony, ebuf);
-		m_close(p_pony);
-		return;
-	}
-
 	if (pipe(pipefd) < 0) {
 		(void)snprintf(ebuf, sizeof ebuf, "pipe: %s", strerror(errno));
 		m_create(p_pony, IMSG_MDA_DONE, 0, 0, -1);
@@ -1422,8 +1409,7 @@ forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 	}
 	if (chdir(pw_dir) < 0 && chdir("/") < 0)
 		err(1, "chdir");
-	if (setgroups(1, &pw_gid) ||
-	    setresgid(pw_gid, pw_gid, pw_gid) ||
+	if (setresgid(pw_gid, pw_gid, pw_gid) ||
 	    setresuid(pw_uid, pw_uid, pw_uid))
 		err(1, "forkmda: cannot drop privileges");
 	if (dup2(pipefd[0], STDIN_FILENO) < 0 ||
@@ -1575,8 +1561,7 @@ offline_enqueue(char *name)
 			_exit(1);
 		}
 
-		if (setgroups(1, &pw->pw_gid) ||
-		    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
+		if (setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 		    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 			_exit(1);
 

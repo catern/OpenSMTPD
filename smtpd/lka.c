@@ -435,8 +435,7 @@ lka(void)
 
 	config_process(PROC_LKA);
 
-	if (initgroups(pw->pw_name, pw->pw_gid) ||
-	    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
+	if (setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
 	    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 		fatal("lka: cannot drop privileges");
 
